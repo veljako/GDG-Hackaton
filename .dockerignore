@@ -1,0 +1,11 @@
+node_modules
+dist
+.runtime
+.agents
+.git
+artifacts
+.env*
+deploy/backend.env
+deploy/*admin*.json
+*.tsbuildinfo
+grading-criteria-page*.png

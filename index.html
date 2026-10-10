@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#faf9f6" />
+    <meta
+      name="description"
+      content="GEvents. Discover events, meet your people, and build together."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=gevents-1" />
+    <title>GEvents · Build together</title>
+    <script>
+      (() => {
+        let saved;
+        try {
+          saved = localStorage.getItem("gevents-theme");
+          if (saved === null) {
+            saved = localStorage.getItem("ghub-theme");
+            if (saved !== null) {
+              localStorage.setItem("gevents-theme", saved);
+              localStorage.removeItem("ghub-theme");
+            }
+          }
+        } catch {}
+        document.documentElement.dataset.theme =
+          saved === "dark" ||
+          (saved !== "light" &&
+            matchMedia("(prefers-color-scheme: dark)").matches)
+            ? "dark"
+            : "light";
+      })();
+    </script>
+    <style>
+      .boot-screen {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #f4f5fa;
+        color: #171923;
+        font:
+          15px system-ui,
+          sans-serif;
+      }
+      .boot-seeds {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .boot-seeds i {
+        display: block;
+        width: 24px;
+        height: 24px;
+        background: #3255ff;
+        border-radius: 50%;
+      }
+      .boot-seeds i:nth-child(2) {
+        background: #ff745e;
+        border-radius: 6px;
+        transform: rotate(15deg);
+      }
+      .boot-seeds i:nth-child(3) {
+        background: #ffdb39;
+        clip-path: polygon(50% 0, 100% 100%, 0 100%);
+        border-radius: 0;
+      }
+      .boot-seeds i:nth-child(4) {
+        background: #82efc5;
+        border-radius: 50% 50% 4px 4px;
+      }
+      html[data-theme="dark"] .boot-screen {
+        background: #101218;
+        color: #f5f6ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot-screen" role="status">
+        <div class="boot-seeds" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
+        <span>Opening GEvents…</span>
+      </div>
+    </div>
+    <noscript>Enable JavaScript to explore your GEvents community.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

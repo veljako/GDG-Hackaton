@@ -1,0 +1,28 @@
+# Free compute only. The Firebase Admin credential is added in the Render
+# Dashboard as the secret file firebase-admin.json, never in this repository.
+services:
+  - type: web
+    name: gevents
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GEVENTS_BACKEND_MODE
+        value: firebase
+      - key: GEVENTS_API_HOST
+        value: 0.0.0.0
+      - key: FIREBASE_PROJECT_ID
+        value: gdg-hackathon-d0b85
+      - key: FIREBASE_AUTH_DOMAIN
+        value: gdg-hackathon-d0b85.firebaseapp.com
+      - key: FIREBASE_WEB_APP_ID
+        value: 1:923660288326:web:17a51d34cafd4a8018a547
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/firebase-admin.json

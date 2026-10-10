@@ -1,0 +1,13 @@
+{
+  "firestore": { "rules": "firestore.rules" },
+  "hosting": {
+    "site": "gdg-hackathon-d0b85",
+    "public": "dist",
+    "ignore": ["firebase.self-hosted.json", "**/.*", "**/node_modules/**", "deploy/**"],
+    "headers": [
+      { "source": "/assets/**", "headers": [{ "key": "Cache-Control", "value": "public,max-age=31536000,immutable" }] },
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
+}

@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pilot clients go through the authenticated API. Admin SDK bypasses rules;
+    // server/service.ts enforces ownership and organizer authorization.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

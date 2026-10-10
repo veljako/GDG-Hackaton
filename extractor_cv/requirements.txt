@@ -1,0 +1,5 @@
+requests==2.34.2
+Pillow==12.3.0
+pypdf==6.20.0
+pytesseract==0.3.13
+jsonschema==4.26.0

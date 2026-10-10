@@ -28,7 +28,7 @@ HACKATHON_MAX_AGE = 25
 RAW_CV_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 SKIP_DIRS = {"venv", "__pycache__", ".git"}
 
-CSV_FIELDS = ["name", "skills", "location", "seniority", "min_birth_year", "max_birth_year", "birth_year", "remote", "event_type", "source"]
+CSV_FIELDS = ["name", "short_description", "skills", "location", "seniority", "min_birth_year", "max_birth_year", "birth_year", "remote", "event_type", "source"]
 
 # Schema for the criteria the agent extracts from an event description.
 # After the call, skills are kept only when they actually appear in a CV.
@@ -41,6 +41,7 @@ EVENT_SCHEMA = {
         "min_birth_year": {"type": ["integer", "null"]},
         "max_birth_year": {"type": ["integer", "null"]},
         "name": {"type": ["string", "null"]},
+        "short_description": {"type": ["string", "null"]},
         "remote": {"type": "boolean"},
         "event_type": {"type": ["string", "null"]},
     },
@@ -51,6 +52,7 @@ EVENT_SCHEMA = {
         "min_birth_year",
         "max_birth_year",
         "name",
+        "short_description",
         "remote",
         "event_type",
     ],
@@ -252,6 +254,13 @@ Name:
 - Use it only when the organizer states a name, for example "DevFest Belgrade".
 - If they do not name the event, return null. Do not copy the whole description into "name".
 
+Short description:
+- "short_description" is a summary of the event in one or two sentences, at most about 200 characters.
+- Write it in the same language as the event description.
+- Say what the event is, its topic, and who it is for, using only facts from the text. Do not invent dates, prizes, sponsors, or places.
+- Do not copy the whole description. Do not start with "The organizer" or "This text".
+- Return null only when the text says nothing about the event itself.
+
 Birth years:
 - "min_birth_year" and "max_birth_year" are top-level fields, not nested in another object.
 - The current year is {CURRENT_YEAR}.
@@ -286,7 +295,7 @@ Event type:
 Wrong answer to refuse:
 Input: "AI hackathon in Belgrade, I need juniors who know Python"
 Wrong: skills only ["Python"], a guessed birth-year range, remote true, or event_type null.
-Right: name null, skills include "AI" and "Python", location "Belgrade", seniority "Junior" or "Student / Junior", min_birth_year {CURRENT_YEAR - HACKATHON_MIN_AGE}, max_birth_year {CURRENT_YEAR - HACKATHON_MAX_AGE}, remote false, event_type "hackathon".
+Right: name null, short_description "AI hackathon in Belgrade for junior Python developers.", skills include "AI" and "Python", location "Belgrade", seniority "Junior" or "Student / Junior", min_birth_year {CURRENT_YEAR - HACKATHON_MIN_AGE}, max_birth_year {CURRENT_YEAR - HACKATHON_MAX_AGE}, remote false, event_type "hackathon".
 
 Skills present in the CVs:
 {json.dumps(vocabulary, ensure_ascii=False)}
@@ -345,6 +354,7 @@ def extract_event_criteria(event_text: str, cvs: list, api_url: str, max_retries
                     _normalize_event_type(event_text, data)
                     _normalize_birth_years(event_text, data)
                     _normalize_name(data)
+                    _normalize_short_description(data)
                     _normalize_remote(event_text, data)
                     if isinstance(data.get("location"), str):
                         data["location"] = data["location"].strip() or None
@@ -483,6 +493,14 @@ def _normalize_name(data: dict) -> None:
         data["name"] = None
         return
     data["name"] = name.strip()
+
+
+def _normalize_short_description(data: dict) -> None:
+    description = data.get("short_description")
+    if not isinstance(description, str) or not description.strip():
+        data["short_description"] = None
+        return
+    data["short_description"] = " ".join(description.split())
 
 
 _SCRAPE_SKILLS = (
@@ -630,6 +648,7 @@ def match_people(cvs: list, criteria: dict) -> list:
         matched.append(
             {
                 "name": criteria.get("name") or "",
+                "short_description": criteria.get("short_description") or "",
                 "skills": ", ".join(overlap),
                 "location": cv["location"] or "",
                 "seniority": cv["seniority"] or "",
@@ -685,8 +704,8 @@ def event_to_json(event_text: str, api_url: str = API_URL) -> dict:
     return extract_event_criteria(event_text.strip(), [], api_url)
 
 
-def find_people(event_text: str, cv_paths: list, out_path: str, api_url: str = API_URL) -> tuple:
-    """Return (criteria, CSV rows) and write the matched people to out_path."""
+def find_candidates_for_event(event_text: str, cv_paths: list, out_path: str, api_url: str = API_URL) -> tuple:
+    """Return (criteria, CSV rows) and write the matched candidates to out_path."""
     cvs = load_cvs(cv_paths, api_url)
     if not cvs:
         raise ValueError("No CV was loaded. Pass JSON from extractor.py, or a PDF/image.")
@@ -722,7 +741,7 @@ def main(argv: Optional[list] = None) -> int:
             print("Error: the event description is empty.")
             return 1
 
-        criteria, rows = find_people(event_text, args.cvs, args.out, args.api_url)
+        criteria, rows = find_candidates_for_event(event_text, args.cvs, args.out, args.api_url)
         print("Criteria extracted from the event description:")
         print(json.dumps(criteria, indent=2, ensure_ascii=False))
         print(f"\nWrote {len(rows)} people to '{args.out}'.")

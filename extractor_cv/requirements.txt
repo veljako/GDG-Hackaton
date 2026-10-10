@@ -3,3 +3,6 @@ Pillow==12.3.0
 pypdf==6.20.0
 pytesseract==0.3.13
 jsonschema==4.26.0
+langchain-openai==1.7.0
+langchain-chroma==1.1.0
+chromadb==1.5.9

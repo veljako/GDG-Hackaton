@@ -200,7 +200,7 @@ def process_and_save_confirmed_cv(confirmed_data: dict, user_id: str) -> dict:
 # ============================================================================
 if __name__ == "__main__":
     # Path to your PDF or JPG file
-    file_path = "asdf.pdf"  # or "sample_cv.jpg"
+    file_path = "tr_cv\Luka_Prlincevic_CV.pdf"  # or "sample_cv.jpg"
 
     try:
         print(f"1. Extracting text from '{file_path}'...")

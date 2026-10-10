@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.agents
+.runtime
+node_modules
+dist
+artifacts
+.env*
+*.tsbuildinfo
+deploy/*.local.*

@@ -1,0 +1,88 @@
+@layer components {
+  .event-search-panel {
+    margin: 22px 0;
+    padding: 22px;
+  }
+  .event-search-panel .search-field,
+  .event-search-panel .search {
+    width: 100%;
+  }
+  .event-search-panel summary {
+    cursor: pointer;
+    padding: 18px 0 10px;
+    font-weight: 600;
+  }
+  .event-search-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding: 10px 0;
+  }
+  .event-search-options {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .recommendation-intro {
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 20px 0;
+  }
+  .recommendation-intro a {
+    color: var(--green-ink);
+    font-weight: 600;
+  }
+  .event-kind-label {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    font-weight: 650;
+    color: var(--muted);
+    margin: 2px 0 8px;
+  }
+  .match-reasons {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--green-soft);
+    color: var(--green-ink);
+  }
+  .match-reasons strong {
+    font-size: 12px;
+  }
+  .match-reasons ul {
+    padding: 0 0 0 17px;
+    margin: 7px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .discovery-preferences {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    margin: 8px 0;
+    min-width: 0;
+  }
+  .discovery-preferences legend {
+    padding: 0 6px;
+    font-weight: 650;
+  }
+  .discovery-preferences .role-checkboxes {
+    flex-wrap: wrap;
+    margin: 8px 0 16px;
+  }
+  .discovery-preferences .form-grid {
+    margin: 16px 0;
+  }
+  @media (max-width: 650px) {
+    .event-search-fields {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .event-search-panel {
+      padding: 16px;
+    }
+    .event-search-options {
+      gap: 12px;
+    }
+  }
+}

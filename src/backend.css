@@ -1,0 +1,164 @@
+.backend-gate {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--surface-raised);
+}
+.backend-card {
+  width: min(100%, 520px);
+  padding: clamp(24px, 5vw, 48px);
+  background: var(--surface);
+  border-radius: 28px;
+  border: 1px solid var(--line);
+}
+.backend-card h1 {
+  font-size: clamp(28px, 5vw, 40px);
+  line-height: 1.15;
+  margin: 20px 0;
+}
+.backend-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-family: "Manrope Variable", sans-serif;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.055em;
+}
+.backend-card p {
+  line-height: 1.6;
+  color: var(--muted);
+}
+.backend-card [role="alert"] {
+  color: var(--red-ink);
+}
+.backend-primary {
+  padding: 14px 22px;
+  background: #2563eb;
+  border: 0;
+  color: white;
+  border-radius: 24px;
+  font: inherit;
+  cursor: pointer;
+}
+.backend-primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.registration-form,
+.registration-actions {
+  display: grid;
+  gap: 14px;
+}
+.registration-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.registration-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: inherit;
+}
+.registration-form input:focus-visible,
+.backend-card button:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+.registration-form .registration-hint {
+  margin: -5px 0 0;
+  font-size: 12px;
+}
+.backend-google {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border-radius: 24px;
+  padding: 14px 20px;
+  font: inherit;
+  cursor: pointer;
+}
+.backend-google:disabled,
+.backend-link:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.registration-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.registration-divider::before,
+.registration-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.registration-actions {
+  margin-top: 20px;
+  gap: 8px;
+}
+.backend-link {
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.backend-status {
+  position: fixed;
+  z-index: 200;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92%, 680px);
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--red-soft);
+  color: var(--red-ink);
+  border: 1px solid #ffc5b8;
+  box-shadow: 0 4px 20px #17243c12;
+  font-size: 13px;
+}
+.backend-status button {
+  margin-left: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.backend-saving {
+  position: fixed;
+  bottom: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  border-radius: 24px;
+  padding: 10px 18px;
+  background: #17243c;
+  color: white;
+  font-size: 13px;
+  pointer-events: none;
+}
+.app-shell [hidden] {
+  display: none !important;
+}

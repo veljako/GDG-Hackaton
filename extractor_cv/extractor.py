@@ -9,28 +9,28 @@ from pypdf import PdfReader
 import pytesseract
 from jsonschema import Draft202012Validator
 
-# Vaš ngrok endpoint
+# Your ngrok endpoint
 API_URL = "https://oblivion-disburse-easeful.ngrok-free.dev/generate"
 
-# Ime modela na serveru. Ako je prazno, uzima se prvi model koji server prijavi.
+# Model name on the server. If empty, the first model the server reports is used.
 MODEL_NAME = os.environ.get("GEMMA_MODEL", "")
 
-# Zaglavlje koje preskače ngrok-ov upozoravajući HTML na besplatnom planu
+# Header that skips the ngrok browser-warning HTML on the free plan
 HEADERS = {"ngrok-skip-browser-warning": "1"}
 
-# JSON šema koju server nameće modelu (constrained decoding).
-# Ista šema se koristi i za validaciju odgovora na klijentu.
+# JSON schema the server enforces on the model (constrained decoding).
+# The same schema is used to validate the response on the client.
 CV_SCHEMA = {
     "type": "object",
     "properties": {
-        "skillovi": {"type": "array", "items": {"type": "string"}},
-        "generalni_opis": {"type": "string"},
-        "lokacija": {"type": ["string", "null"]},
+        "skills": {"type": "array", "items": {"type": "string"}},
+        "general_description": {"type": "string"},
+        "location": {"type": ["string", "null"]},
         "status": {"type": ["string", "null"]},
-        "godiste": {"type": ["integer", "null"]},
-        "nivo_iskustva": {"type": "string"},
+        "birth_year": {"type": ["integer", "null"]},
+        "experience_level": {"type": "string"},
     },
-    "required": ["skillovi", "generalni_opis", "lokacija", "status", "godiste", "nivo_iskustva"],
+    "required": ["skills", "general_description", "location", "status", "birth_year", "experience_level"],
     "additionalProperties": False,
 }
 
@@ -38,7 +38,7 @@ _VALIDATOR = Draft202012Validator(CV_SCHEMA)
 
 
 def extract_text_from_file(file_path: str) -> str:
-    """Ekstrahuje sirovi tekst iz PDF ili slikovnog fajla (JPG, PNG)."""
+    """Extract raw text from a PDF or an image file (JPG, PNG)."""
     ext = os.path.splitext(file_path)[1].lower()
     extracted_text = ""
 
@@ -52,25 +52,25 @@ def extract_text_from_file(file_path: str) -> str:
         extracted_text = pytesseract.image_to_string(image)
 
     else:
-        raise ValueError(f"Nepodržan format fajla: {ext}. Podržani su .pdf, .jpg, .jpeg, .png")
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats are .pdf, .jpg, .jpeg, .png")
 
     return extracted_text.strip()
 
 
 def build_prompt(cv_text: str) -> str:
-    """Instrukcije modelu. Format odgovora nameće šema, prompt opisuje značenje polja."""
+    """Instructions for the model. The schema enforces the response format; the prompt describes the fields."""
     return f"""
-Ti si AI parser CV-jeva. Iz priloženog teksta CV-ja izvuci tražene informacije i vrati ih kao JSON objekat.
+You are an AI CV parser. Extract the requested information from the CV text below and return it as a JSON object.
 
-Značenje polja:
-- "skillovi": niz stringova (npr. ["Python", "C++", "Docker"])
-- "generalni_opis": kratak sažetak profila i projekata u 2-3 rečenice
-- "lokacija": grad i država (string ili null ako ne postoji)
-- "status": trenutni status (npr. "Student", "Zaposlen", "Freelancer", ili null)
-- "godiste": godina rođenja kao ceo broj (ili null ako nije navedeno)
-- "nivo_iskustva": procena nivoa (npr. "Student / Junior", "Mid", "Senior")
+Field meanings:
+- "skills": array of strings (e.g. ["Python", "C++", "Docker"])
+- "general_description": a short summary of the profile and projects, in 2-3 sentences
+- "location": city and country (string, or null if missing)
+- "status": current status (e.g. "Student", "Employed", "Freelancer", or null)
+- "birth_year": year of birth as an integer (or null if not stated)
+- "experience_level": estimated level (e.g. "Student / Junior", "Mid", "Senior")
 
-TEKST CV-JA:
+CV TEXT:
 ---
 {cv_text}
 ---
@@ -78,24 +78,24 @@ TEKST CV-JA:
 
 
 def _base_url(api_url: str) -> str:
-    """Iz 'https://host/generate' pravi 'https://host'."""
+    """Turn 'https://host/generate' into 'https://host'."""
     parts = urlsplit(api_url)
     return f"{parts.scheme}://{parts.netloc}"
 
 
 def _extract_json_object(text: str) -> dict:
-    """Vadi prvi {...} blok iz teksta, tolerantno na markdown ograde i uvodne rečenice."""
+    """Pull the first {...} block out of the text, tolerating markdown fences and intro sentences."""
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
-        raise json.JSONDecodeError("U odgovoru nema JSON objekta", text, 0)
+        raise json.JSONDecodeError("The response contains no JSON object", text, 0)
     return json.loads(match.group(0))
 
 
 def _validate(data: dict) -> list[str]:
-    """Vraća listu grešaka u odnosu na CV_SCHEMA (prazna lista = validno)."""
+    """Return schema errors against CV_SCHEMA (an empty list means the data is valid)."""
     return [
         f"{'/'.join(str(p) for p in err.path) or '<root>'}: {err.message}"
         for err in _VALIDATOR.iter_errors(data)
@@ -103,12 +103,12 @@ def _validate(data: dict) -> list[str]:
 
 
 # ----------------------------------------------------------------------------
-# Backend 3: postojeći /generate wrapper (tekstualni odgovor + validacija + retry)
+# Backend 3: existing /generate wrapper (text response + validation + retry)
 # ----------------------------------------------------------------------------
 def _call_generate(api_url: str, prompt: str, max_retries: int = 1) -> dict:
     strict_prompt = prompt + (
-        "\nVrati ISKLJUČIVO JSON objekat, bez markdown ograda i bez dodatnog teksta. "
-        f"Objekat mora odgovarati ovoj šemi:\n{json.dumps(CV_SCHEMA, ensure_ascii=False)}\n"
+        "\nReturn ONLY a JSON object, with no markdown fences and no extra text. "
+        f"The object must match this schema:\n{json.dumps(CV_SCHEMA, ensure_ascii=False)}\n"
     )
     current_prompt = strict_prompt
     last_error = None
@@ -117,7 +117,7 @@ def _call_generate(api_url: str, prompt: str, max_retries: int = 1) -> dict:
     for _ in range(max_retries + 1):
         r = requests.post(api_url, json={"prompt": current_prompt}, headers=HEADERS, timeout=120)
         if r.status_code != 200:
-            raise RuntimeError(f"Greška na serveru: {r.status_code} {r.text[:300]}")
+            raise RuntimeError(f"Server error: {r.status_code} {r.text[:300]}")
 
         raw = r.json().get("response", "")
         try:
@@ -125,15 +125,15 @@ def _call_generate(api_url: str, prompt: str, max_retries: int = 1) -> dict:
             problems = _validate(data)
             if not problems:
                 return data
-            last_error = "Odgovor ne odgovara šemi: " + "; ".join(problems)
+            last_error = "Response does not match the schema: " + "; ".join(problems)
         except json.JSONDecodeError as e:
-            last_error = f"Odgovor nije validan JSON: {e.msg}"
+            last_error = f"Response is not valid JSON: {e.msg}"
 
-        # Retry: modelu se vraća konkretna greška iz prethodnog pokušaja
+        # Retry: send the concrete error from the previous attempt back to the model
         current_prompt = (
             strict_prompt
-            + f"\nTvoj prethodni odgovor je odbijen. Razlog: {last_error}\n"
-            + f"Prethodni odgovor:\n{raw}\n\nIspravi ga i vrati samo JSON objekat."
+            + f"\nYour previous response was rejected. Reason: {last_error}\n"
+            + f"Previous response:\n{raw}\n\nFix it and return only the JSON object."
         )
 
     raise ValueError(f"{last_error} | raw_response: {raw[:500]}")
@@ -141,55 +141,69 @@ def _call_generate(api_url: str, prompt: str, max_retries: int = 1) -> dict:
 
 def parse_cv_with_gemma(cv_text: str, api_url: str) -> dict:
     """
-    Šalje tekst CV-ja Gemma modelu i vraća JSON koji odgovara CV_SCHEMA.
+    Send the CV text to the Gemma model and return JSON that matches CV_SCHEMA.
 
-    Redosled pokušaja:
-      1. Ollama  (/api/chat, "format": schema)   -> server nameće šemu pri dekodiranju
-      2. OpenAI-kompatibilan (/v1/chat/completions, response_format json_schema)
-      3. Postojeći /generate wrapper + regex ekstrakcija + validacija + jedan retry
+    Attempt order:
+      1. Ollama (/api/chat, "format": schema) — the server enforces the schema while decoding
+      2. OpenAI-compatible (/v1/chat/completions, response_format json_schema)
+      3. Existing /generate wrapper + regex extraction + validation + one retry
     """
     prompt = build_prompt(cv_text)
     base = _base_url(api_url)
     attempts = []
 
     for name, fn in (
-        ("ollama", lambda: _call_ollama(base, prompt)),
-        ("openai", lambda: _call_openai_compatible(base, prompt)),
         ("generate", lambda: _call_generate(api_url, prompt)),
     ):
         try:
             data = fn()
             problems = _validate(data)
             if problems:
-                attempts.append(f"{name}: odgovor ne odgovara šemi ({'; '.join(problems)})")
+                attempts.append(f"{name}: response does not match the schema ({'; '.join(problems)})")
                 continue
             data["_backend"] = name
             return data
         except Exception as e:
             attempts.append(f"{name}: {type(e).__name__}: {str(e)[:200]}")
 
-    return {"error": "Nijedan backend nije vratio validan rezultat", "attempts": attempts}
+    return {"error": "No backend returned a valid result", "attempts": attempts}
 
+
+
+def process_and_save_confirmed_cv(confirmed_data: dict, user_id: str) -> dict:
+    """
+    Placeholder. Not implemented yet.
+
+    Intended behavior: take the user-confirmed CV payload from the frontend,
+    build a canonical string for semantic search from experience_level, skills,
+    and general_description, generate an OpenAI text-embedding-3-small vector
+    (1536 dimensions), and upsert the candidate profile into the Supabase
+    pgvector table "resumes" (conflict key: user_id).
+
+    Until that is implemented, this returns the confirmed JSON unchanged.
+    user_id is part of the future signature and is unused for now.
+    """
+    return confirmed_data
 
 # ============================================================================
-# PRIMER UPOTREBE
+# EXAMPLE USAGE
 # ============================================================================
 if __name__ == "__main__":
-    # Putanja do vašeg PDF ili JPG fajla
-    file_path = "slika.png" # ili "primer_cv.jpg"
+    # Path to your PDF or JPG file
+    file_path = "asdf.pdf"  # or "sample_cv.jpg"
 
     try:
-        print(f"1. Izvlačim tekst iz fajla '{file_path}'...")
+        print(f"1. Extracting text from '{file_path}'...")
         cv_text = extract_text_from_file(file_path)
 
         if not cv_text:
-            print("Upozorenje: Nije pronađen tekst u dokumentu.")
+            print("Warning: no text was found in the document.")
         else:
-            print("2. Šaljem tekst na Gemma API...")
+            print("2. Sending the text to the Gemma API...")
             parsed_data = parse_cv_with_gemma(cv_text, API_URL)
 
-            print("\n--- Struktuirani Podaci iz CV-ja ---")
+            print("\n--- Structured CV data ---")
             print(json.dumps(parsed_data, indent=2, ensure_ascii=False))
 
     except Exception as err:
-        print("Greška:", err)
+        print("Error:", err)

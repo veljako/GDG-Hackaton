@@ -9,6 +9,16 @@ from pypdf import PdfReader
 import pytesseract
 from jsonschema import Draft202012Validator
 
+# The Windows installer does not update PATH for terminals that were already open.
+_TESSERACT_CANDIDATES = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+)
+for _tesseract_path in _TESSERACT_CANDIDATES:
+    if os.path.isfile(_tesseract_path):
+        pytesseract.pytesseract.tesseract_cmd = _tesseract_path
+        break
+
 # Your ngrok endpoint
 API_URL = "https://oblivion-disburse-easeful.ngrok-free.dev/generate"
 

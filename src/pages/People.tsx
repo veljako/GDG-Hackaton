@@ -21,6 +21,7 @@ import {
 import { InviteModal, PersonModal } from "../components/forms";
 import type { Person } from "../types";
 import { Pagination, usePagination } from "../components/pagination";
+import { CustomSelect } from "../components/CustomSelect";
 
 export default function People() {
   const { state, me, run } = useDemo();
@@ -63,22 +64,18 @@ export default function People() {
           label="Search community profiles"
         />
         {filter === "Accepted participants" && (
-          <label className="inline-select">
+          <div className="inline-select">
             <span>Hackathon</span>
-            <select
+            <CustomSelect
+              label="People hackathon filter"
+              hideLabel
               value={eventId}
-              onChange={(e) => setEventId(e.target.value)}
-              aria-label="People hackathon filter"
-            >
-              {state.events
+              onChange={setEventId}
+              options={state.events
                 .filter((e) => e.status === "open")
-                .map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.title}
-                  </option>
-                ))}
-            </select>
-          </label>
+                .map((e) => ({ value: e.id, label: e.title }))}
+            />
+          </div>
         )}
       </div>
       <Chips

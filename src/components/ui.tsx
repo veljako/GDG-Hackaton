@@ -7,7 +7,13 @@ import {
   useRef,
 } from "react";
 import type { ReactNode, FormEvent } from "react";
-import { X, ArrowRight, MagnifyingGlass, Sparkle } from "@phosphor-icons/react";
+import {
+  X,
+  ArrowRight,
+  Check,
+  MagnifyingGlass,
+  Sparkle,
+} from "@phosphor-icons/react";
 import type { MdDialog } from "@material/web/dialog/dialog";
 import { useReducedMotion } from "motion/react";
 import type { Color, Person } from "../types";
@@ -269,6 +275,9 @@ export function Chips({
           aria-pressed={active === value}
           onClick={() => onChange(value)}
         >
+          {active === value && (
+            <Check size={15} weight="bold" aria-hidden="true" />
+          )}
           {value}
         </button>
       ))}

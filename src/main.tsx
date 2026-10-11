@@ -14,6 +14,7 @@ import App from "./App";
 import "./styles.css";
 import "./playful.css";
 import "./bold.css";
+import "./components/filters.css";
 import { ThemeProvider, useTheme } from "./theme";
 import { LaunchIntro } from "./components/LaunchIntro";
 

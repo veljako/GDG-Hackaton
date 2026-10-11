@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
+import { chooseFilter } from "./filter-test-utils.mjs";
 
 const base =
   process.env.GEVENTS_URL ?? process.env.GDEV_URL ?? "http://127.0.0.1:5191";
@@ -127,11 +128,11 @@ try {
   await expect(page.locator(".event-card")).toHaveCount(1);
   await expect(page.locator(".card-title-button")).toContainText("Gemini");
   await page.getByRole("button", { name: "Clear search", exact: true }).click();
-  await page.getByText("Advanced filters", { exact: true }).click();
-  await expect(page.getByLabel("Event type", { exact: true })).toBeVisible();
-  await page
-    .getByLabel("Event type", { exact: true })
-    .selectOption("conference");
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Event type", exact: true }),
+  ).toBeVisible();
+  await chooseFilter(page, "Event type", "conference");
   await expect(page.locator(".event-card")).toHaveCount(1);
   await page
     .getByRole("button", { name: "Clear filters", exact: true })

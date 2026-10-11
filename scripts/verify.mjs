@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
+import { chooseFilter } from "./filter-test-utils.mjs";
 const base =
   process.env.GEVENTS_URL ?? process.env.GDEV_URL ?? "http://localhost:5180";
 const cached =
@@ -78,7 +79,7 @@ async function switchView(personId, mode) {
 }
 async function reviewApplicant(personName, eventId) {
   await switchView(undefined, "organizer");
-  await page.getByLabel("Manage event").selectOption(eventId);
+  await chooseFilter(page, "Manage event", eventId);
   await page
     .locator(".application-row")
     .filter({ hasText: personName })
@@ -182,11 +183,9 @@ try {
   record("Organizer admission confirms new member");
   await switchView("luka", "attendee");
   await goto("/hackathons");
-  await page.getByText("Advanced filters", { exact: true }).click();
-  await page
-    .getByLabel("Event type", { exact: true })
-    .selectOption("hackathon");
-  await page.getByLabel("Format", { exact: true }).selectOption("Online");
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await chooseFilter(page, "Event type", "hackathon");
+  await chooseFilter(page, "Format", "Online");
   await expect(page.locator(".event-card")).toHaveCount(1);
   await expect(page.locator(".event-card")).toContainText("Design for Good");
   record("Discovery filters actual event data");
@@ -376,7 +375,7 @@ try {
   );
   expect(createdEvent.status).toBe("open");
   record("Organizer creates discoverable hackathon");
-  await page.getByLabel("Manage event").selectOption("gdg-belgrade");
+  await chooseFilter(page, "Manage event", "gdg-belgrade");
   await page.getByRole("button", { name: "Edit event", exact: true }).click();
   await dialog()
     .getByLabel("Applications", { exact: true })

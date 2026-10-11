@@ -1,6 +1,7 @@
 // Isolated browser fixtures; no accounts, cloud writes or invitation emails.
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
+import { chooseFilter } from "./filter-test-utils.mjs";
 const base = process.env.GEVENTS_URL ?? "http://127.0.0.1:5193";
 const cached =
   "C:/Users/urosd/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe";
@@ -520,9 +521,7 @@ try {
         name: "Application review is managed by admins",
       }),
     ).toBeVisible();
-    await permissions.page
-      .getByLabel("Manage event")
-      .selectOption("other-draft");
+    await chooseFilter(permissions.page, "Manage event", "other-draft");
     await expect(
       permissions.page.getByRole("button", { name: "Edit event", exact: true }),
     ).toBeDisabled();
@@ -560,9 +559,12 @@ try {
       .getByRole("button", { name: "Create event", exact: true })
       .last()
       .click();
-    await expect(permissions.page.getByLabel("Manage event")).toHaveValue(
-      "created-fixture",
-    );
+    await expect(
+      permissions.page.getByRole("combobox", {
+        name: "Manage event",
+        exact: true,
+      }),
+    ).toHaveAttribute("data-value", "created-fixture");
     expect(permissions.calls.some((c) => c.body?.type === "CREATE_EVENT")).toBe(
       true,
     );

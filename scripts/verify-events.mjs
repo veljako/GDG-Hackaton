@@ -83,9 +83,9 @@ try {
   ).toBeVisible();
   await expect(a.page.locator(".event-card")).toHaveCount(1);
   await a.page.reload();
-  await expect(a.page.getByLabel("Event type", { exact: true })).toHaveValue(
-    "conference",
-  );
+  await expect(
+    a.page.getByRole("combobox", { name: "Event type", exact: true }),
+  ).toHaveAttribute("data-value", "conference");
   pass("Advanced filters combine and persist after reload");
   await a.page.goto(base + "/#/events/open-science-meetup");
   await expect(

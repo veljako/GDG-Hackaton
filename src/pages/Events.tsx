@@ -1,11 +1,15 @@
 import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
+import { CaretDown, Check, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { MatchingControls } from "../components/MatchingControls";
 import type { SemanticResponse } from "../backend";
 import { useDemo } from "../store";
 import { eventKinds, formats, searchEvents, kindLabel } from "../discovery";
 import { EventCard } from "../components/events";
 import { PageTitle, Search, Field, Button, Empty } from "../components/ui";
+import { CustomSelect } from "../components/CustomSelect";
+import { DateFilter } from "../components/DateFilter";
+import { dateFromIso } from "../components/calendar";
 import "../discovery.css";
 import { Pagination, usePagination } from "../components/pagination";
 
@@ -67,6 +71,38 @@ export default function Events() {
     ),
   ].sort();
   const invalidDates = !!get("from") && !!get("to") && get("from") > get("to");
+  const filterLabels: Record<string, string> = {
+    kind: "Type",
+    topic: "Topic",
+    city: "City",
+    format: "Format",
+    from: "From",
+    to: "To",
+    available: "Available places only",
+    past: "Past events",
+  };
+  const activeFilters = Object.keys(filterLabels).filter((key) => !!get(key));
+  const [filtersOpen, setFiltersOpen] = useState(
+    () => activeFilters.length > 0,
+  );
+  function clearFilters() {
+    commitParams(new URLSearchParams(personal ? { view: "for-you" } : {}));
+  }
+  function filterValue(key: string) {
+    if (key === "kind")
+      return kindLabel({ kind: get(key) as (typeof eventKinds)[number] });
+    if (key === "from" || key === "to") {
+      const date = dateFromIso(get(key));
+      return date
+        ? new Intl.DateTimeFormat("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }).format(date)
+        : get(key);
+    }
+    return get(key);
+  }
   const pagination = usePagination(events, params.toString());
   return (
     <>
@@ -112,46 +148,58 @@ export default function Events() {
           placeholder="Search topics, organizations or events"
           label="Search events"
         />
-        <details
-          open={
-            [
-              "kind",
-              "topic",
-              "city",
-              "format",
-              "from",
-              "to",
-              "available",
-              "past",
-            ].some((k) => !!get(k)) || undefined
-          }
+        <div className="event-filter-heading">
+          <button
+            type="button"
+            className="filter-disclosure"
+            aria-expanded={filtersOpen}
+            aria-controls="event-filter-fields"
+            onClick={() => setFiltersOpen(!filtersOpen)}
+          >
+            <SlidersHorizontal size={18} aria-hidden="true" />
+            Filters
+            {!!activeFilters.length && (
+              <span className="filter-count">{activeFilters.length}</span>
+            )}
+            <CaretDown size={16} aria-hidden="true" />
+          </button>
+          {(activeFilters.length > 0 || get("q")) && (
+            <button
+              type="button"
+              className="clear-filters"
+              onClick={clearFilters}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+        <div
+          id="event-filter-fields"
+          className="event-filter-body"
+          hidden={!filtersOpen}
         >
-          <summary>Advanced filters</summary>
           <div className="event-search-fields">
-            <Field label="Event type">
-              <select
-                value={get("kind")}
-                onChange={(e) => change("kind", e.target.value)}
-              >
-                <option value="">All types</option>
-                {eventKinds.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {kindLabel({ kind })}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Topic">
-              <select
-                value={get("topic")}
-                onChange={(e) => change("topic", e.target.value)}
-              >
-                <option value="">All topics</option>
-                {topics.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            </Field>
+            <CustomSelect
+              label="Event type"
+              value={get("kind")}
+              onChange={(value) => change("kind", value)}
+              options={[
+                { value: "", label: "All types" },
+                ...eventKinds.map((kind) => ({
+                  value: kind,
+                  label: kindLabel({ kind }),
+                })),
+              ]}
+            />
+            <CustomSelect
+              label="Topic"
+              value={get("topic")}
+              onChange={(value) => change("topic", value)}
+              options={[
+                { value: "", label: "All topics" },
+                ...topics.map((topic) => ({ value: topic, label: topic })),
+              ]}
+            />
             <Field label="City">
               <input
                 value={get("city")}
@@ -159,68 +207,71 @@ export default function Events() {
                 onChange={(e) => change("city", e.target.value)}
               />
             </Field>
-            <Field label="Format">
-              <select
-                value={get("format")}
-                onChange={(e) => change("format", e.target.value)}
-              >
-                <option value="">All formats</option>
-                {formats.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="From date">
-              <input
-                type="date"
-                value={get("from")}
-                onChange={(e) => change("from", e.target.value)}
-              />
-            </Field>
-            <Field label="To date">
-              <input
-                type="date"
-                value={get("to")}
-                min={get("from") || undefined}
-                onChange={(e) => change("to", e.target.value)}
-              />
-            </Field>
+            <CustomSelect
+              label="Format"
+              value={get("format")}
+              onChange={(value) => change("format", value)}
+              options={[
+                { value: "", label: "All formats" },
+                ...formats.map((format) => ({ value: format, label: format })),
+              ]}
+            />
+            <DateFilter
+              label="From date"
+              value={get("from")}
+              onChange={(value) => change("from", value)}
+              invalid={invalidDates}
+              describedBy={invalidDates ? "event-date-error" : undefined}
+            />
+            <DateFilter
+              label="To date"
+              value={get("to")}
+              min={get("from")}
+              onChange={(value) => change("to", value)}
+              invalid={invalidDates}
+              describedBy={invalidDates ? "event-date-error" : undefined}
+            />
           </div>
           <div className="event-search-options">
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={get("available") === "1"}
-                onChange={(e) =>
-                  change("available", e.target.checked ? "1" : "")
-                }
-              />
-              <span>Available places only</span>
-            </label>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={get("past") === "1"}
-                onChange={(e) => change("past", e.target.checked ? "1" : "")}
-              />
-              <span>Past events</span>
-            </label>
+            {["available", "past"].map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`chip ${get(key) === "1" ? "active" : ""}`}
+                aria-pressed={get(key) === "1"}
+                onClick={() => change(key, get(key) === "1" ? "" : "1")}
+              >
+                <span className="filter-check" aria-hidden="true">
+                  {get(key) === "1" && <Check size={13} weight="bold" />}
+                </span>
+                {filterLabels[key]}
+              </button>
+            ))}
           </div>
-        </details>
-        {[...params.keys()].some((k) => k !== "view") && (
-          <Button
-            variant="text"
-            onClick={() =>
-              commitParams(
-                new URLSearchParams(personal ? { view: "for-you" } : {}),
-              )
-            }
-          >
-            Clear filters
-          </Button>
+        </div>
+        {!!activeFilters.length && (
+          <div className="active-filter-list" aria-label="Active filters">
+            {activeFilters.map((key) => (
+              <button
+                type="button"
+                key={key}
+                className="active-filter"
+                aria-label={`Remove ${filterLabels[key]} filter`}
+                onClick={() => change(key, "")}
+              >
+                <span>
+                  {filterLabels[key]}
+                  {key !== "available" && key !== "past" && (
+                    <strong>: {filterValue(key)}</strong>
+                  )}
+                </span>
+                <X size={14} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
         )}
         {invalidDates && (
-          <p role="status" className="field-error">
+          <p role="status" id="event-date-error" className="field-error">
             The end of your search range must be after the start.
           </p>
         )}

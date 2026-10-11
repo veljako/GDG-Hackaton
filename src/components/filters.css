@@ -1,0 +1,346 @@
+/* Shared filter controls use the same surfaces and selection color as the app. */
+.filter-field {
+  min-width: 0;
+}
+.filter-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+}
+.filter-control > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-control.has-value {
+  color: var(--ink);
+}
+.filter-control[aria-expanded="true"] {
+  border-color: var(--blue-ink);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.filter-control[aria-invalid="true"] {
+  border-color: var(--red-ink);
+}
+.filter-control:disabled {
+  opacity: 0.5;
+}
+.filter-popup {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  max-height: 320px;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow:
+    0 6px 18px #00000012,
+    0 18px 50px #00000018;
+}
+.filter-popup::backdrop {
+  background: transparent;
+}
+.select-popup button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.select-popup button[aria-selected="true"] {
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  font-weight: 650;
+}
+.filter-control:focus-visible,
+.filter-popup button:focus-visible,
+.filter-disclosure:focus-visible,
+.clear-filters:focus-visible,
+.active-filter:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--blue-ink);
+  outline-offset: 2px;
+}
+.filter-popup button:focus-visible {
+  outline-offset: -2px;
+}
+.calendar-popup {
+  width: 320px;
+  padding: 12px;
+}
+.calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.calendar-heading strong {
+  font-size: 14px;
+}
+.calendar-heading button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.calendar-weekdays,
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.calendar-weekdays {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 8px 0;
+}
+.calendar-days button {
+  min-width: 0;
+  min-height: 40px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+.calendar-days .outside-month {
+  color: var(--muted);
+}
+.calendar-days .is-today {
+  box-shadow: inset 0 0 0 1px var(--blue-ink);
+}
+.calendar-days button[aria-pressed="true"] {
+  background: var(--blue-ink);
+  color: var(--surface);
+  font-weight: 700;
+}
+.calendar-popup button:disabled {
+  opacity: 0.35;
+}
+.calendar-footer {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.calendar-footer button {
+  padding: 8px 12px;
+  min-height: 40px;
+  border-radius: 12px;
+  color: var(--blue-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.inline-select .filter-field {
+  width: min(320px, 100%);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  font-weight: 550;
+}
+.chip.active,
+.chip.active:hover {
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  border-color: var(--blue-ink);
+}
+.filter-check {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
+}
+.chip.active .filter-check {
+  border-color: var(--blue-ink);
+  background: var(--blue-ink);
+  color: var(--surface);
+}
+.event-search-panel {
+  display: block;
+  padding: 18px;
+}
+.event-search-panel > .search-field {
+  min-height: 48px;
+  background: var(--canvas);
+}
+.event-search-panel .search-field:focus-within {
+  border-color: var(--blue-ink);
+  box-shadow: 0 0 0 2px var(--blue-soft);
+}
+.event-filter-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.filter-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  font-size: 13px;
+  font-weight: 650;
+}
+.filter-disclosure[aria-expanded="true"] {
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.filter-disclosure[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
+}
+.filter-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--blue-ink);
+  color: var(--surface);
+  font-size: 11px;
+}
+.clear-filters {
+  min-height: 44px;
+  padding: 8px 10px;
+  color: var(--blue-ink);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 12px;
+}
+.event-search-fields {
+  padding: 16px 0 8px;
+  gap: 14px;
+}
+.event-search-fields .field input {
+  min-height: 44px;
+  font-size: 13px;
+  border-radius: 12px;
+}
+.event-search-options {
+  gap: 8px;
+  margin-top: 12px;
+}
+.active-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.active-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+.active-filter span {
+  overflow-wrap: anywhere;
+}
+.active-filter strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.event-search-panel .field-error {
+  margin-top: 14px;
+}
+@media (hover: hover) {
+  .filter-control:hover,
+  .active-filter:hover {
+    border-color: var(--blue-ink);
+  }
+  .select-popup button:hover,
+  .calendar-popup button:not(:disabled):hover,
+  .clear-filters:hover {
+    background: var(--surface-raised);
+  }
+  .select-popup button[aria-selected="true"]:hover {
+    background: var(--blue-soft);
+  }
+  .calendar-days button[aria-pressed="true"]:hover {
+    background: var(--blue-ink);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .filter-control,
+  .chip,
+  .filter-disclosure {
+    transition:
+      background-color 120ms,
+      border-color 120ms,
+      color 120ms;
+  }
+}
+@media (max-width: 650px) {
+  .event-search-panel {
+    padding: 14px;
+  }
+  .event-search-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .event-search-fields input,
+  .event-search-panel .search-field input {
+    font-size: 16px;
+  }
+  .calendar-days button {
+    min-height: 44px;
+  }
+  .active-filter {
+    min-height: 44px;
+  }
+  .inline-select {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .inline-select .filter-field {
+    width: 100%;
+  }
+}
+@media (forced-colors: active) {
+  .chip.active,
+  .select-popup button[aria-selected="true"],
+  .calendar-days button[aria-pressed="true"] {
+    outline: 1px solid Highlight;
+  }
+}

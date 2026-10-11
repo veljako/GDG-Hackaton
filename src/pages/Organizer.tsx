@@ -31,6 +31,7 @@ import { TeamStatusBadge, EventArt } from "../components/visuals";
 import type { Application, Hackathon, Role, Color } from "../types";
 import type { EventKind, Goal, Level } from "../types";
 import { eventKinds, goals, levels, hasTeams } from "../discovery";
+import { CustomSelect } from "../components/CustomSelect";
 
 export default function Organizer() {
   const { state, run, me, memberships, busy, startOrganization } = useDemo();
@@ -120,25 +121,25 @@ export default function Organizer() {
         }
       />
       <div className="organizer-event-picker">
-        <label className="inline-select">
+        <div className="inline-select">
           <span>Managing</span>
-          <select
-            aria-label="Manage event"
+          <CustomSelect
+            label="Manage event"
+            hideLabel
             value={event.id}
-            onChange={(e) => setEventId(e.target.value)}
-          >
-            {state.events.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.title}
-                {e.publicationStatus === "pending"
+            onChange={setEventId}
+            options={state.events.map((e) => ({
+              value: e.id,
+              label:
+                e.title +
+                (e.publicationStatus === "pending"
                   ? " · Awaiting approval"
                   : e.publicationStatus === "draft"
                     ? " · Draft"
-                    : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+                    : ""),
+            }))}
+          />
+        </div>
         <div>
           <Badge color={event.status === "open" ? "green" : "neutral"}>
             {event.status === "open"

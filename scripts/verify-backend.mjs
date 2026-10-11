@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
+import { chooseFilter } from "./filter-test-utils.mjs";
 const base =
   process.env.GEVENTS_URL ?? process.env.GDEV_URL ?? "http://127.0.0.1:5191";
 const cached =
@@ -149,7 +150,7 @@ try {
   record(
     "Acceptance synchronizes across browsers while admission stays pending",
   );
-  await organizer.getByLabel("Manage event").selectOption("gdg-belgrade");
+  await chooseFilter(organizer, "Manage event", "gdg-belgrade");
   await expect(
     organizer.locator(".application-row").filter({ hasText: "Žarko Nikolić" }),
   ).toBeVisible();

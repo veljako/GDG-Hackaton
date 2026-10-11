@@ -1,0 +1,26 @@
+# Fictional CV evaluation
+
+`extractor_cv/evaluate_synthetic.py` generates eight fictional, text-based CV PDFs and a recorded ground-truth JSON file using `random.Random(seed)`. English and Serbian Latin (ASCII transliteration) cover data science, frontend development, design and biology. Missing location/seniority/birth year, incompatible location and seniority, semantic paraphrase and frontend skills complement cases are included. The PDFs and ground truth remain under a unique `.runtime/synthetic-cvs-<run-id>` directory for reproduction. No real CV is read.
+
+```powershell
+.runtime/cv-pipeline-venv/Scripts/python.exe extractor_cv/evaluate_synthetic.py --mode offline
+.runtime/cv-pipeline-venv/Scripts/python.exe extractor_cv/evaluate_synthetic.py --mode live
+```
+
+Offline extraction is an explicit test double that parses each PDF then injects its known fields. LocalHashingEmbeddings with an ephemeral, uniquely named legacy Chroma index checks pipeline behavior, exclusions, ranking and cache reuse. Offline results make **no extraction or semantic quality claim**. The paraphrase ranking is reported but excluded from offline passing criteria.
+
+Live mode requires the configured actual Gemma `/generate` service and pinned `google/embeddinggemma-300m` `/embed` service (`GEMMA_GENERATE_URL`, `GEMMA_MODEL`, `GEMMA_EMBED_URL`, immutable `GEMMA_EMBED_REVISION`). A live model/Firebase outage or failed required check returns nonzero; it never switches to mocks. Each run uses a unique `gdevEvaluations/<run-id>` Firestore workspace with `evaluation` namespace. Cleanup deletes only exact vector document references registered by this run, including a partly attempted write; it never traverses collections or writes canonical application users/events. Firestore credentials and vector indexes must already be configured.
+
+For the explicit local Ollama model adapter, use `--embedding-backend ollama-gemma` with `GEMMA_OLLAMA_EMBED_DIGEST` set to the real pinned installed model SHA-256 digest. Generation still uses the configured Gemma generate route. For actual model quality checks when Firestore is unavailable, explicitly add `--storage-backend chroma`. This exercises live models in ephemeral legacy storage and reports `firestore: false`.
+
+The Markdown report defaults to `.runtime/gemma-task3-evaluation-report.md`; its companion JSON records seed, run ID, storage/model identity, exercised boundaries, expected/actual extracted fields, ranking scores, exclusions and cache checks. There are twenty labelled matching cases, including Serbian text, direct skill queries, paraphrases, local/remote eligibility, age boundaries and teammate complements. Use `--report` to preserve separate live/offline reports and `--seed` to replay generation. Model failure messages are sanitized to exception type, avoiding service-response or credential leakage.
+
+Each run persists `normalized-records.json` incrementally alongside its PDFs: normalized actual model output, ground truth, source-PDF SHA-256 hashes and model provenance from the bridge health response. `--replay <normalized-records.json>` reuses a complete eight-record artifact for matching without repeating generation inference. The replay boundary is recorded separately; a live replay rejects artifacts with mocked extraction. `gemma_extraction: false` during replay means generation was not called in this run; original model identity stays in `generation_provenance`. Phase timings record PDF generation, extraction, indexing, matching and cleanup separately.
+
+The baseline comparison uses exact, case-folded skill/tag overlap on the **same extracted normalized records** and explicit metadata constraints as semantic retrieval. Ties sort by immutable candidate ID; eligible profiles with zero overlap remain results. It uses no description matching or synonyms and is not the full existing application recommender. The report compares both rankers' top-1 and top-3 label hits across the same twenty cases and lists every explicit exclusion/metadata eligibility violation. Offline lexical results and the baseline are observational evidence only; they do not establish EmbeddingGemma quality.
+
+Skill comparisons require exactly matching sets, ignoring case; location and seniority use existing pipeline canonicalization. Known status values compare case-insensitively. Inferred values for deliberately missing fields count as errors. Data, frontend complement and science cases require the designated best candidate at rank 1. The semantic paraphrase case accepts either designated data profile in the top 3. Every listed ineligible profile must be excluded. Repeated identical candidate/event upserts must make no new embedding calls.
+
+This small dataset cannot establish population-wide matching quality. The complement scenario tests a missing-skills retrieval query; it does not establish team authorization or end-to-end browser integration.
+
+On this Windows host, Application Control can block DLLs installed in the workspace virtual environment. Verification used the same venv executable with selective preloads of bundled `pydantic`, `pydantic_core` and `numpy`, then restored the venv package path; this preserves the current extractor's pinned `pypdf` implementation. That host workaround is separate from model/Firebase availability.

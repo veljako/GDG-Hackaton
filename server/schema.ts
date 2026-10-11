@@ -42,6 +42,7 @@ const period = <
 export const eventSchema = z
   .object({
     matchingVersion: z.literal(2).optional(),
+    autoInviteCount: z.number().int().min(0).max(5000).optional(),
     topics: list.optional(),
     country: short.optional(),
     languages: list.optional(),
@@ -161,6 +162,13 @@ const application = { eventId: id, personId: id, role, motivation: text };
 const event = eventSchema;
 const profile = profileSchema;
 export const actionSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("RESPOND_EVENT_INVITATION"),
+      invitationId: id,
+      response: z.enum(["accepted", "declined"]),
+    })
+    .strict(),
   z.object({ type: z.literal("CREATE_EVENT"), event }).strict(),
   z
     .object({

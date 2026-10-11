@@ -67,6 +67,9 @@ export default function Organizer() {
     (a) => a.eventId === event?.id,
   );
   const teams = state.teams.filter((t) => t.eventId === event?.id);
+  const eventInvitations = (state.eventInvitations ?? []).filter(
+    (i) => i.eventId === event?.id,
+  );
   const shown = (organizationAdmin ? applications : []).filter(
     (a) =>
       (filter === "All" || a.status === filter.toLowerCase()) &&
@@ -256,6 +259,58 @@ export default function Organizer() {
           label="Confirmed teams"
         />
       </div>
+      {!!event.autoInviteCount && (
+        <section
+          className="panel event-auto-invite-results"
+          aria-label="Automatic event invitations"
+        >
+          <SectionTitle title="Automatic invitations" />
+          <p>
+            {!organizationAdmin && event.publishedAt
+              ? "Invitation results are visible to your organization’s admins."
+              : event.publishedAt || event.status !== "draft"
+                ? `${eventInvitations.length} of ${event.autoInviteCount} requested invitations sent.`
+                : `Up to ${event.autoInviteCount} suitable people will be invited when this event is published.`}
+          </p>
+          {!!event.publishedAt &&
+            eventInvitations.length < event.autoInviteCount &&
+            organizationAdmin && (
+              <p className="muted">
+                Fewer suitable, opted-in people or available places were found.
+              </p>
+            )}
+          {organizationAdmin && !!eventInvitations.length && (
+            <ul className="event-invitation-list">
+              {eventInvitations.map((invitation) => (
+                <li key={invitation.id}>
+                  <div>
+                    <strong>
+                      {state.people.find((p) => p.id === invitation.personId)
+                        ?.name ?? "Community member"}
+                    </strong>
+                    <p className="muted">{invitation.reasons.join(" · ")}</p>
+                  </div>
+                  <Badge
+                    color={
+                      invitation.status === "accepted"
+                        ? "green"
+                        : invitation.status === "pending"
+                          ? "yellow"
+                          : "neutral"
+                    }
+                  >
+                    {invitation.status === "pending"
+                      ? "Awaiting reply"
+                      : invitation.status === "accepted"
+                        ? "Invitation accepted"
+                        : "Declined"}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <div className="tabs" aria-label="Organizer sections">
         {(hasTeams(event)
           ? ["Applications", "Teams", "Event overview"]
@@ -597,7 +652,7 @@ function EventEditor({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const { run, organizations, memberships, me } = useDemo();
+  const { run, organizations, memberships, me, busy } = useDemo();
   const [organizationId, setOrganizationId] = useState(
     event ? (event.organizationId ?? "") : (organizations[0]?.id ?? ""),
   );
@@ -609,6 +664,9 @@ function EventEditor({
       m.role === "admin",
   );
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "hackathon");
+  const [autoInvite, setAutoInvite] = useState(!!event?.autoInviteCount);
+  const autoInviteLocked =
+    !!event && (!!event.publishedAt || event.status !== "draft");
   const [formError, setFormError] = useState("");
   const split = (value: FormDataEntryValue | null) => [
     ...new Set(
@@ -639,7 +697,7 @@ function EventEditor({
           <Button variant="text" onClick={onClose}>
             Cancel
           </Button>
-          <Button form="event-form">
+          <Button form="event-form" disabled={busy}>
             {event ? "Save changes" : "Create event"}
           </Button>
         </>
@@ -674,7 +732,22 @@ function EventEditor({
             return;
           }
           setFormError("");
+          const autoInviteCount = autoInviteLocked
+            ? (event?.autoInviteCount ?? 0)
+            : autoInvite
+              ? Number(data.get("autoInviteCount"))
+              : 0;
+          if (
+            !autoInviteLocked &&
+            autoInviteCount > Number(data.get("capacity"))
+          ) {
+            setFormError(
+              "The number of invitations cannot exceed event capacity.",
+            );
+            return;
+          }
           const details: Omit<Hackathon, "id"> = {
+            autoInviteCount,
             matchingVersion: 2,
             topics: split(data.get("topics")),
             country: String(data.get("country") ?? "").trim(),
@@ -1119,6 +1192,47 @@ function EventEditor({
               </label>
             ))}
           </div>
+        </fieldset>
+        <fieldset className="discovery-preferences">
+          <legend>Automatic invitations</legend>
+          <div className="role-checkboxes">
+            <label>
+              <input
+                type="checkbox"
+                checked={autoInvite}
+                disabled={autoInviteLocked}
+                onChange={(e) => setAutoInvite(e.target.checked)}
+              />
+              <span>Automatically invite suitable people</span>
+            </label>
+          </div>
+          {autoInvite && (
+            <Field
+              label="Number of people to invite"
+              hint="Up to event capacity, with a maximum of 5000."
+            >
+              <input
+                name="autoInviteCount"
+                type="number"
+                min="1"
+                max="5000"
+                step="1"
+                required
+                disabled={autoInviteLocked}
+                defaultValue={event?.autoInviteCount || 5}
+              />
+            </Field>
+          )}
+          <p className="form-note">
+            {autoInviteLocked
+              ? "Invitation settings were fixed when this event was published. Editing the event will not resend invitations."
+              : "When published, invite the best matches based on your topics, audience and eligibility requirements. Only people who opted into matching notifications are included. If fewer people qualify, we invite fewer and show the result."}
+          </p>
+          <p className="form-note">
+            Invitations appear in Activity. People choose whether to accept;
+            your registration rules still apply. Invitations do not reserve
+            places.
+          </p>
         </fieldset>
         <fieldset className="discovery-preferences">
           <legend>Eligibility requirements</legend>

@@ -56,7 +56,7 @@ export default function Home() {
   });
   const upcoming = recommended.slice(0, 2);
   const applications = state.applications.filter((a) => a.personId === me.id);
-  const invites = state.invitations.filter(
+  const invites = [...state.invitations, ...(state.eventInvitations ?? [])].filter(
     (i) => i.personId === me.id && i.status === "pending",
   );
   return (

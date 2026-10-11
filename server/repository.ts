@@ -164,7 +164,7 @@ export class FirestoreRepository implements Repository {
   private documents(state: DemoState): Map<string, object> {
     const records = new Map<string, object>();
     for (const key of entityCollections)
-      for (const record of state[key]) {
+      for (const record of state[key] ?? []) {
         if (!record.id || record.id.includes("/"))
           throw Error("Invalid Firestore document ID.");
         // JSON serialization drops optional undefined fields rejected by Firestore.

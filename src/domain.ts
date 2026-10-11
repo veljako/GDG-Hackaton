@@ -8,7 +8,7 @@ import type {
   Transition,
 } from "./types";
 import { createSeedState } from "./seed";
-import { hasTeams } from './discovery';
+import { hasTeams, registrationOpen } from './discovery';
 import { eventEligibility, matchingEventError, matchingProfileError, normalizeEvent } from "./matching-data";
 
 export function admissionFor(
@@ -59,6 +59,7 @@ function nextId(state: DemoState, prefix: string): string {
       ...state.teams,
       ...state.applications,
       ...state.invitations,
+      ...(state.eventInvitations ?? []),
       ...state.notifications,
     ].map((x) => x.id),
   );
@@ -107,6 +108,14 @@ const otherTeam = (
       t.memberIds.includes(personId),
   );
 function validateEvent(event: Omit<Hackathon, "id">): string | undefined {
+  if (
+    event.autoInviteCount !== undefined &&
+    (!Number.isInteger(event.autoInviteCount) ||
+      event.autoInviteCount < 0 ||
+      event.autoInviteCount > 5000 ||
+      (!event.publishedAt && event.autoInviteCount > event.capacity))
+  )
+    return "Auto-invite count must be a whole number from zero through event capacity (maximum 5000).";
   if (
     [event.title, event.organizer, event.location].some(
       (value) => typeof value !== "string" || !value.trim(),
@@ -248,6 +257,12 @@ export function transition(state: DemoState, action: Action): Transition {
         return fail("Switch to organizer mode to edit an event.");
       const event = eventById(action.eventId);
       if (!event) return fail("Event not found.");
+      if (
+        (event.publishedAt || event.status !== "draft") &&
+        action.changes.autoInviteCount !== undefined &&
+        action.changes.autoInviteCount !== (event.autoInviteCount ?? 0)
+      )
+        return fail("Auto-invite settings cannot change after publication.");
       if (action.changes.id && action.changes.id !== event.id)
         return fail("Event identity cannot be changed.");
       const edited = {
@@ -276,6 +291,45 @@ export function transition(state: DemoState, action: Action): Transition {
         );
       Object.assign(event, normalizeEvent(edited));
       return success("Event details updated.");
+    }
+    case "RESPOND_EVENT_INVITATION": {
+      const invitation = next.eventInvitations?.find(
+        (i) => i.id === action.invitationId,
+      );
+      if (!invitation) return fail("Event invitation not found.");
+      if (!own(invitation.personId))
+        return fail(
+          "Only the recipient can respond to their own event invitation.",
+        );
+      if (invitation.status !== "pending")
+        return fail("This invitation has already been answered.");
+      if (action.response === "declined") {
+        invitation.status = "declined";
+        return success("Event invitation declined.");
+      }
+      const event = eventById(invitation.eventId);
+      if (!event || !registrationOpen(event))
+        return fail("Registration is closed for this event.");
+      const eligibility = eventEligibility(event, person(invitation.personId)!);
+      if (!eligibility.eligible) return fail(eligibility.reasons.join(" "));
+      if (admissionFor(next, event.id, invitation.personId)) {
+        invitation.status = "accepted";
+        return success(
+          "Invitation accepted. Your existing application status is unchanged.",
+        );
+      }
+      const applied = transition(next, {
+        type: "SUBMIT_APPLICATION",
+        eventId: event.id,
+        personId: invitation.personId,
+        role: "Participant",
+        motivation: "Accepted the organizer’s event invitation.",
+      });
+      if (applied.error) return fail(applied.error);
+      applied.state.eventInvitations!.find(
+        (i) => i.id === invitation.id,
+      )!.status = "accepted";
+      return { ...applied, message: `Invitation accepted. ${applied.message}` };
     }
     case "SUBMIT_APPLICATION": {
       const event = eventById(action.eventId);

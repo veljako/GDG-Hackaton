@@ -843,6 +843,30 @@ textarea::placeholder {
 .activity-board > section:only-child {
   grid-column: 1 / -1;
 }
+.event-auto-invite-results {
+  margin-bottom: 24px;
+}
+.event-invitation-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.event-invitation-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.event-invitation-list li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.event-invitation-list p {
+  margin: 4px 0 0;
+}
 .activity-board .activity-invitations {
   grid-template-columns: 1fr;
 }

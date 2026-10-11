@@ -5,6 +5,7 @@ import { recommendationsFor, registrationOpen } from "../src/discovery";
 import { publicPerson } from "./users";
 import { requiresOnboarding } from "../src/onboarding";
 import type { OrganizationSnapshot } from "../src/organizations";
+import { autoInviteForEvent } from "./event-invitations";
 
 export type Session = {
   personId: string;
@@ -267,9 +268,23 @@ export function execute(
       !previous || (!previous.publishedAt && previous.status === "draft");
     if (event && event.status === "open" && firstPublication) {
       event.publishedAt = now;
+      const sent = autoInviteForEvent(
+        result.state,
+        event,
+        session.personId,
+        now,
+      );
+      if (event.autoInviteCount)
+        result.message = `${result.message} Auto-invited ${sent} of ${event.autoInviteCount} requested people.${sent < event.autoInviteCount ? " Fewer suitable people or available places were found." : ""}`;
       if (registrationOpen(event))
         for (const person of result.state.people) {
           if (!person.preferences?.notify) continue;
+          if (
+            result.state.eventInvitations?.some(
+              (i) => i.eventId === event.id && i.personId === person.id,
+            )
+          )
+            continue;
           const match = recommendationsFor(result.state, person).find(
             (r) => r.eventId === event.id,
           );
@@ -358,6 +373,9 @@ export function view(state: DemoState, session: Session): DemoState {
     result.invitations = result.invitations.filter((i) =>
       result.teams.some((t) => t.id === i.teamId),
     );
+    result.eventInvitations = (result.eventInvitations ?? []).filter((i) =>
+      reviewedIds.has(i.eventId),
+    );
   }
   result.notifications = result.notifications.filter(
     (n) => n.personId === session.personId,
@@ -368,6 +386,9 @@ export function view(state: DemoState, session: Session): DemoState {
   if (result.mode !== "organizer") {
     result.events = result.events.filter((e) => e.status !== "draft");
     const events = new Set(result.events.map((e) => e.id));
+    result.eventInvitations = (result.eventInvitations ?? []).filter(
+      (i) => i.personId === session.personId && events.has(i.eventId),
+    );
     result.teams = result.teams.filter((t) => events.has(t.eventId));
     result.applications = result.applications
       .filter((a) => events.has(a.eventId))

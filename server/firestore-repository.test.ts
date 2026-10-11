@@ -81,6 +81,36 @@ function database(initial: Record<string, unknown> = {}) {
   return { db, records };
 }
 
+it("persists auto-invites and responses in the eventInvitations collection", async () => {
+  const { db, records } = database();
+  const repo = new FirestoreRepository(db);
+  const seed = createSeedState();
+  const candidate = seed.people.find(p => p.id === "mila")!;
+  candidate.skills = ["React"];
+  candidate.interests = ["Web apps"];
+  candidate.preferences = { goals: ["Learning"], kinds: ["meetup"], formats: ["Online"], location: "", notify: true };
+  await repo.update(() => ({ state: seed }));
+  const { id: _id, publishedAt: _pub, ...base } = seed.events[0];
+  const session = { personId: "luka", organizer: true, mode: "organizer" as const, demo: true };
+  const created = await repo.update(state => execute(state, session, {
+    type: "CREATE_EVENT", event: { ...base, autoInviteCount: 1, kind: "meetup", minTeamSize: 1, maxTeamSize: 1,
+      format: "Online", topics: ["Web apps"], status: "open", date: "2099-10-11", endDate: "2099-10-11", deadline: "2099-10-10",
+      audience: { skills: ["React"], goals: ["Learning"], roles: [], levels: [] },
+    },
+  }));
+  expect(created.error).toBeUndefined();
+  expect(created.state.eventInvitations).toHaveLength(1);
+  const invitation = created.state.eventInvitations![0];
+  expect(records.get(`gdevPilots/main/eventInvitations/${invitation.id}`)).toMatchObject({ eventId: created.createdId, status: "pending" });
+  const fresh = new FirestoreRepository(db);
+  const accepted = await fresh.update(state => execute(state, {
+    ...session, personId: invitation.personId, organizer: false, mode: "attendee",
+  }, { type: "RESPOND_EVENT_INVITATION", invitationId: invitation.id, response: "accepted" }));
+  expect(accepted.error).toBeUndefined();
+  expect(records.get(`gdevPilots/main/eventInvitations/${invitation.id}`)).toMatchObject({ status: "accepted" });
+  expect((await new FirestoreRepository(db).read()).applications.some(a => a.eventId === created.createdId && a.personId === invitation.personId)).toBe(true);
+});
+
 async function onboardingFixture() {
   const { db, records } = database();
   const repo = new FirestoreRepository(db);

@@ -240,6 +240,7 @@ export function searchEvents(
 export function normalizeState(state: DemoState): DemoState {
   return {
     ...state,
+    eventInvitations: state.eventInvitations ?? [],
     people: state.people.map(normalizePerson),
     events: state.events.map((e) => ({
       ...normalizeEvent(e),

@@ -91,7 +91,7 @@ export default function App() {
   const unread = state.notifications.filter(
     (n) => n.personId === me.id && !n.read,
   ).length;
-  const invites = state.invitations.filter(
+  const invites = [...state.invitations, ...(state.eventInvitations ?? [])].filter(
     (i) => i.personId === me.id && i.status === "pending",
   ).length;
   useEffect(() => {

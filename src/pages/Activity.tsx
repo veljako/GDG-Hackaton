@@ -23,6 +23,7 @@ import {
   formatDate,
 } from "../components/ui";
 import type { Admission } from "../types";
+import { EventInvitationCards } from "../components/EventInvitationCards";
 
 const admissionLabels: Record<Admission, string> = {
   accepted: "Accepted",
@@ -42,6 +43,9 @@ function ActivityContent() {
   const [withdrawId, setWithdrawId] = useState<string | null>(null);
   const applications = state.applications.filter((a) => a.personId === me.id);
   const invitations = state.invitations.filter(
+    (i) => i.personId === me.id && i.status === "pending",
+  );
+  const eventInvitations = (state.eventInvitations ?? []).filter(
     (i) => i.personId === me.id && i.status === "pending",
   );
   const withdrawing = applications.find((a) => a.id === withdrawId);
@@ -90,8 +94,8 @@ function ActivityContent() {
           <span className="color-blue">
             <EnvelopeSimple size={23} />
           </span>
-          <strong>{invitations.length}</strong>
-          <span>Team invitations</span>
+          <strong>{invitations.length + eventInvitations.length}</strong>
+          <span>Invitations</span>
         </div>
       </div>
       <div className="filter-toolbar">
@@ -106,8 +110,9 @@ function ActivityContent() {
         {filter !== "Applications" && (
           <section className="activity-section">
             <SectionTitle title="Invitations" />
-            {invitations.length ? (
+            {invitations.length || eventInvitations.length ? (
               <div className="activity-invitations">
+                <EventInvitationCards invitations={eventInvitations} />
                 {invitations.map((invitation) => {
                   const team = state.teams.find(
                     (t) => t.id === invitation.teamId,

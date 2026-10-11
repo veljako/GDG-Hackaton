@@ -96,6 +96,8 @@ export type CvDocument = {
   extracted_at: string | null;
 };
 export type GEventsEvent = {
+  /** Zero or absent disables invitations; runs only at first publication. */
+  autoInviteCount?: number;
   matchingVersion?: 2;
   topics?: string[];
   country?: string;
@@ -171,6 +173,15 @@ export type Invitation = {
   status: "pending" | "accepted" | "declined";
   createdAt: string;
 };
+export type EventInvitation = {
+  id: string;
+  eventId: string;
+  personId: string;
+  fromId: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
+  reasons: string[];
+};
 export type Notice = {
   eventId?: string;
   id: string;
@@ -181,6 +192,7 @@ export type Notice = {
   href: string;
 };
 export type DemoState = {
+  eventInvitations?: EventInvitation[];
   recommendations?: Recommendation[];
   version: 1;
   people: Person[];
@@ -194,6 +206,11 @@ export type DemoState = {
   mode: "attendee" | "organizer";
 };
 export type Action =
+  | {
+      type: "RESPOND_EVENT_INVITATION";
+      invitationId: string;
+      response: "accepted" | "declined";
+    }
   | { type: "SET_PERSON"; personId: string }
   | { type: "SET_MODE"; mode: "attendee" | "organizer" }
   | { type: "CREATE_EVENT"; event: Omit<Hackathon, "id"> }

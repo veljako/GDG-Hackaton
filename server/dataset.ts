@@ -11,6 +11,7 @@ export const entityCollections = [
   "teams",
   "applications",
   "invitations",
+  "eventInvitations",
   "notifications",
 ] as const;
 const id = z
@@ -79,6 +80,21 @@ const person = profileSchema
 const datasetSchema = z
   .object({
     version: z.literal(1),
+    eventInvitations: z
+      .array(
+        z
+          .object({
+            id,
+            eventId: id,
+            personId: id,
+            fromId: id,
+            status: z.enum(["pending", "accepted", "declined"]),
+            createdAt: short,
+            reasons: z.array(short).max(3),
+          })
+          .strict(),
+      )
+      .default([]),
     people: z.array(person),
     events: z.array(
       eventSchema.extend({
@@ -156,6 +172,7 @@ export function emptyWorkspace(): DemoState {
     teams: [],
     applications: [],
     invitations: [],
+    eventInvitations: [],
     notifications: [],
     connections: [],
     currentPersonId: "",
@@ -166,7 +183,7 @@ export function datasetCounts(state: DemoState) {
   return Object.fromEntries(
     [...entityCollections, "connections" as const].map((key) => [
       key,
-      state[key].length,
+      (state[key] ?? []).length,
     ]),
   );
 }
@@ -191,7 +208,7 @@ export function validateDataset(input: unknown): DemoState {
   }
   const sets = Object.fromEntries(
     entityCollections.map((key) => {
-      const ids = state[key].map((record) => record.id);
+      const ids = (state[key] ?? []).map((record) => record.id);
       if (new Set(ids).size !== ids.length)
         throw Error(`Duplicate IDs in ${key}.`);
       return [key, new Set(ids)];
@@ -233,6 +250,16 @@ export function validateDataset(input: unknown): DemoState {
   for (const notice of state.notifications) {
     reference("people", notice.personId);
     if (notice.eventId) reference("events", notice.eventId);
+  }
+  const eventRecipients = new Set<string>();
+  for (const invitation of state.eventInvitations ?? []) {
+    reference("events", invitation.eventId);
+    reference("people", invitation.personId);
+    reference("people", invitation.fromId);
+    const key = `${invitation.eventId}:${invitation.personId}`;
+    if (eventRecipients.has(key))
+      throw Error("Duplicate event invitation recipient.");
+    eventRecipients.add(key);
   }
   if (new Set(state.connections).size !== state.connections.length)
     throw Error("Duplicate connections.");

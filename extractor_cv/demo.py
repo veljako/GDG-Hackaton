@@ -51,7 +51,7 @@ def _row(rank: int, similarity: float, candidate_id: str, source: str, store) ->
     )
 
 
-def ingest_sources(sources: List[str], max_pdfs: Optional[int]) -> Dict[str, str]:
+def ingest_sources(sources: List[str], max_pdfs: Optional[int], sync_firebase: bool = False) -> Dict[str, str]:
     """Run every CV in the sources through extract -> HITL -> DB. Returns candidate_id -> source label."""
     origin: Dict[str, str] = {}
     for source in sources:
@@ -63,6 +63,8 @@ def ingest_sources(sources: List[str], max_pdfs: Optional[int]) -> Dict[str, str
                 continue
             enriched = pipeline.human_in_the_loop_enrichment(cv)
             pipeline.add_user_to_db(enriched)
+            if sync_firebase:
+                pipeline.add_user_to_firebase(enriched)
             origin[candidate_id] = label
             print(
                 f"  added {candidate_id}  level={cv['experience_level'] or '-'}"
@@ -79,6 +81,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--all-pdfs", action="store_true", help="Extract every PDF/image CV.")
     parser.add_argument("--top-n", type=int, default=5)
     parser.add_argument("--in-memory", action="store_true", help="Do not persist the vector DB.")
+    parser.add_argument("--firebase", action="store_true", help="Also write users and the event to Firestore.")
     parser.add_argument("--event-file", help="Text file with the event description instead of the mock text.")
     args = parser.parse_args(argv)
 
@@ -89,7 +92,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ---- Step 1: CVs -------------------------------------------------------
     print("\n=== Step 1: CV extraction -> human in the loop -> DB ===")
     started = time.time()
-    origin = ingest_sources(args.sources, None if args.all_pdfs else args.max_pdfs_per_source)
+    origin = ingest_sources(args.sources, None if args.all_pdfs else args.max_pdfs_per_source, args.firebase)
     print(f"\n{len(origin)} candidates added in {time.time() - started:.0f}s.")
     if not origin:
         print("Error: no CV was added.")
@@ -100,6 +103,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     event_text = Path(args.event_file).read_text(encoding="utf-8") if args.event_file else MOCK_EVENT_TEXT
     event = pipeline.extract_event_info(event_text)
     event_id = pipeline.add_event_to_db(event)
+    if args.firebase:
+        event["event_id"] = event_id
+        pipeline.add_event_to_firebase(event)
     print(json.dumps(event, indent=2, ensure_ascii=False))
     print(f"\nevent_id: {event_id}")
     print(f"Ideal-candidate narrative: {event_narrative(event)}")

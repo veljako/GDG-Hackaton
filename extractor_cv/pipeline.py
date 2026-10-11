@@ -2,7 +2,9 @@
 Matchmaking pipeline: the public entry points that connect extractors, the DB, and search.
 
 CV flow:    extract_cv_info -> human_in_the_loop_enrichment -> add_user_to_db
+            optional: add_user_to_firebase
 Event flow: extract_event_info -> add_event_to_db
+            optional: add_event_to_firebase
 Matching:   find_best_matches
 
 All DB functions use one shared MatchmakingStore. configure_store() picks the persist
@@ -58,6 +60,13 @@ def add_user_to_db(cv_dict: CvDict, store: Optional[MatchmakingStore] = None) ->
     return (store or get_store()).upsert_candidate(cv_dict)
 
 
+def add_user_to_firebase(cv_dict: CvDict) -> str:
+    """Write the extracted user profile to Firestore (gdevPilots/main/users). Returns the document id."""
+    from firebase_store import upsert_user
+
+    return upsert_user(cv_dict)
+
+
 def process_cv(file_path: str, store: Optional[MatchmakingStore] = None) -> str:
     """Run one CV file through extraction, enrichment, and storage."""
     return add_user_to_db(human_in_the_loop_enrichment(extract_cv_info(file_path)), store)
@@ -69,6 +78,13 @@ def process_cv(file_path: str, store: Optional[MatchmakingStore] = None) -> str:
 def add_event_to_db(event_dict: EventDict, store: Optional[MatchmakingStore] = None) -> str:
     """Embed the event as its ideal-candidate narrative and upsert it. Returns event_id."""
     return (store or get_store()).upsert_event(event_dict)
+
+
+def add_event_to_firebase(event_dict: EventDict) -> str:
+    """Write the extracted event to Firestore (gdevPilots/main/events). Returns the document id."""
+    from firebase_store import upsert_event
+
+    return upsert_event(event_dict)
 
 
 # ============================================================================

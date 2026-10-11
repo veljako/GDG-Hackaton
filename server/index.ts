@@ -4,6 +4,7 @@ import { loadEnvFile } from "node:process";
 import { createApi } from "./http";
 import { FileRepository, FirestoreRepository } from "./repository";
 import { FileCvStorage, CloudCvStorage } from "./cv-storage";
+import { HttpMatchingClient } from "./matching-client";
 
 if (existsSync(".env.server.local")) loadEnvFile(".env.server.local");
 // Existing deployments may still provide the previous environment prefix.
@@ -47,7 +48,11 @@ if (mode === "firebase") {
           ),
         }
       : process.env.GEVENTS_CV_DIRECTORY
-        ? { cvStorage: new FileCvStorage(resolve(process.env.GEVENTS_CV_DIRECTORY)) }
+        ? {
+            cvStorage: new FileCvStorage(
+              resolve(process.env.GEVENTS_CV_DIRECTORY),
+            ),
+          }
         : {}),
     authenticate: async (token) => {
       const user = await getAuth().verifyIdToken(token, true);
@@ -89,6 +94,14 @@ const allowedOrigins = new Set(
 );
 const server = createApi({
   ...options,
+  ...(process.env.GEMMA_WORKER_URL && process.env.GEMMA_WORKER_TOKEN
+    ? {
+        matchingClient: new HttpMatchingClient(
+          process.env.GEMMA_WORKER_URL,
+          process.env.GEMMA_WORKER_TOKEN,
+        ),
+      }
+    : {}),
   allowedOrigins,
   staticDirectory: resolve("dist"),
 });

@@ -148,6 +148,28 @@ it("accepts structured user metadata and allows clearing unknown values", () => 
     }).success,
   ).toBe(true);
 });
+it("drops legacy extraction secrets and unknown imported fields at the database boundary", () => {
+  const state = createSeedState();
+  const person = state.people.find((p) => p.id === "mila")!;
+  const record = Object.assign(toUserDocument(person), {
+    cv_text: "PRIVATE CV CONTENT",
+    source: "C:/private/path",
+    candidate_id: "legacy-id",
+    future_extraction_secret: "PRIVATE FUTURE FIELD",
+  });
+  const decoded = fromUserDocument(record, person.id);
+  for (const field of ["cv_text", "source", "candidate_id", "future_extraction_secret"])
+    expect(decoded).not.toHaveProperty(field);
+  Object.assign(person, record);
+  for (const organizer of [false, true]) {
+    const other = view(state, {
+      personId: "luka", organizer, mode: organizer ? "organizer" : "attendee", demo: true,
+    }).people.find((p) => p.id === "mila")!;
+    expect(other.name).toBe(person.name);
+    for (const field of ["cv_text", "source", "candidate_id", "future_extraction_secret"])
+      expect(other).not.toHaveProperty(field);
+  }
+});
 it("rejects invented categories, fractional years and future years", () => {
   for (const changes of [
     { status: "Unknown" },

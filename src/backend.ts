@@ -7,6 +7,16 @@ export type BackendConfig = {
   firebase: Record<string, string> | null;
 };
 export type Snapshot = { state: DemoState; organizer: boolean };
+export type SemanticResponse = {
+  source?: string;
+  results: { eventId?: string; personId?: string; reasons: string[] }[];
+  warnings?: string[];
+  proposal?: Record<string, unknown>;
+  extraction_hash?: string;
+  expected_profile_updated_at?: string | null;
+};
+export const semanticMatching = (route: string, input: unknown = {}) =>
+  request<SemanticResponse>(`matching/${route}`, input);
 const sessionKey = "gevents-api-session";
 const pendingNamesKey = "gevents-pending-registration-names";
 let config: BackendConfig;
@@ -34,7 +44,7 @@ async function request<T>(
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
-    data instanceof Blob ? 60000 : 12000,
+    data instanceof Blob || path.startsWith("matching/") ? 100000 : 12000,
   );
   try {
     const credential =
@@ -79,6 +89,14 @@ async function request<T>(
         result.error ?? "The request failed.",
         response.status,
       );
+    if (
+      result.matching_sync === "unavailable" &&
+      Array.isArray(result.warnings)
+    )
+      result.message = [
+        result.message || "Changes saved.",
+        ...result.warnings,
+      ].join(" ");
     return result as T;
   } catch (error) {
     if (error instanceof BackendError) throw error;

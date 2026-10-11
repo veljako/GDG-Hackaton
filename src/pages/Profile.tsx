@@ -30,6 +30,7 @@ import type { EventKind, Goal, EventFormat, Level } from "../types";
 import "../discovery.css";
 import { downloadCv } from "../backend";
 import { toast } from "sonner";
+import { CvMatchingReview } from "../components/MatchingControls";
 
 const roles: Role[] = ["Participant", "Mentor", "Speaker", "Judge"];
 const list = (value: string) => [
@@ -134,6 +135,7 @@ function ProfileContent() {
 
   return (
     <>
+      {me.cv_document && <CvMatchingReview />}
       <PageTitle
         title="Your profile."
         description="Show your skills, interests and next steps."
@@ -325,7 +327,7 @@ function ProfileContent() {
             {me.cv_document && (
               <p className="muted">
                 {me.cv_document.extraction_status === "not_started"
-                  ? "Your CV is saved. Automatic profile extraction will be added during onboarding."
+                  ? "Your CV is saved. Choose Extract current CV, then review the proposed fields."
                   : `Extraction: ${me.cv_document.extraction_status}`}
               </p>
             )}

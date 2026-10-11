@@ -9,9 +9,11 @@ import { createHash } from "node:crypto";
 import { emptyWorkspace, entityCollections } from "./dataset";
 import { toUserDocument, fromUserDocument, type UserDocument } from "./users";
 
+export type CvExtractionGuard = { personId: string; storagePath: string; extractionHash: string; sourceUpdatedAt: string | null };
 export interface Repository {
+  supportsCvExtractionGuard?: boolean;
   read(): Promise<DemoState>;
-  update(fn: (state: DemoState) => Transition): Promise<Transition>;
+  update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition>;
 }
 export class FileRepository implements Repository {
   private queue: Promise<unknown> = Promise.resolve();
@@ -29,8 +31,9 @@ export class FileRepository implements Repository {
       throw error; // Corrupt data must never be silently reset.
     }
   }
-  update(fn: (state: DemoState) => Transition): Promise<Transition> {
+  update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition> {
     const job = this.queue.then(async () => {
+      if (guard) return { state: await this.load(), error: "Atomic CV confirmation is unavailable." };
       const result = fn(await this.load());
       if (!result.error) {
         await mkdir(dirname(this.filename), { recursive: true });
@@ -48,6 +51,7 @@ export class FileRepository implements Repository {
   }
 }
 export class FirestoreRepository implements Repository {
+  readonly supportsCvExtractionGuard = true;
   constructor(
     private db: Firestore,
     private document = "gdevPilots/main",
@@ -152,9 +156,16 @@ export class FirestoreRepository implements Repository {
       { readOnly: true },
     );
   }
-  async update(fn: (state: DemoState) => Transition): Promise<Transition> {
+  async update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition> {
     return this.db.runTransaction(async (transaction) => {
       const before = await this.load(transaction);
+      if (guard) {
+        if (!guard.personId || guard.personId.includes("/")) throw Error("Invalid extraction owner.");
+        const extraction = await transaction.get(this.db.doc(`${this.document}/cvExtractions/${guard.personId}`));
+        const row = extraction.exists ? extraction.data() : undefined;
+        if (!row || row.user_id !== guard.personId || row.storage_path !== guard.storagePath || row.extraction_hash !== guard.extractionHash || (row.source_updated_at ?? null) !== guard.sourceUpdatedAt)
+          return { state: before.state, error: "Your extraction changed. Review it again." };
+      }
       const result = fn(structuredClone(before.state));
       if (result.error) return result;
       const state = {

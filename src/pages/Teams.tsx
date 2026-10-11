@@ -32,6 +32,7 @@ import {
   ApplyModal,
 } from "../components/forms";
 import type { Person, Team } from "../types";
+import { MatchingControls } from "../components/MatchingControls";
 
 export function Teams() {
   const { state, me } = useDemo();
@@ -196,6 +197,13 @@ export function TeamDetail() {
         }
       />
       <div className="team-detail-layout">
+        {isMember && !isPastTeam(state, team) && (
+          <MatchingControls
+            route="team"
+            input={{ team_id: team.id }}
+            names={Object.fromEntries(state.people.map((p) => [p.id, p.name]))}
+          />
+        )}
         <section className="panel team-space">
           <div className="team-space-top">
             <TeamStatusBadge team={team} />

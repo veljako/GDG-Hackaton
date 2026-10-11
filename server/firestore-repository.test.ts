@@ -50,6 +50,22 @@ function database(initial: Record<string, unknown> = {}) {
   return { db, records };
 }
 
+it("atomically rejects a replaced private extraction before saving public fields", async () => {
+  const { db, records } = database();
+  const repo = new FirestoreRepository(db);
+  const seed = createSeedState();
+  const id = seed.people[0].id;
+  await repo.update(() => ({ state: seed }));
+  const path = `gdevPilots/main/cvExtractions/${id}`;
+  records.set(path, { user_id: id, storage_path: "cv.pdf", source_updated_at: "v1", extraction_hash: "replacement" });
+  const before = structuredClone(records.get(`gdevPilots/main/users/${id}`));
+  const result = await repo.update(state => { state.people[0].skills = ["Obsolete proposal"]; return { state }; }, { personId: id, storagePath: "cv.pdf", extractionHash: "reviewed", sourceUpdatedAt: "v1" });
+  expect(result.error).toMatch(/extraction changed/i);
+  expect(records.get(`gdevPilots/main/users/${id}`)).toEqual(before);
+  records.set(path, { user_id: id, storage_path: "cv.pdf", source_updated_at: "v1", extraction_hash: "reviewed" });
+  expect((await repo.update(state => { state.people[0].skills = ["Current proposal"]; return { state }; }, { personId: id, storagePath: "cv.pdf", extractionHash: "reviewed", sourceUpdatedAt: "v1" })).error).toBeUndefined();
+});
+
 it("stores editable documents and preserves data across repository instances", async () => {
   const { db, records } = database();
   const repo = new FirestoreRepository(db);

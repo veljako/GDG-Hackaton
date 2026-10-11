@@ -12,6 +12,12 @@ import { execute, view, type Session } from "./service";
 import type { Person } from "../src/types";
 import type { CvStorage } from "./cv-storage";
 import { normalizePerson } from "../src/user-profile";
+import { matchingRoutes, MatchingRouteError } from "./matching-routes";
+import {
+  MatchingUnavailable,
+  queueMatchingSync,
+  type MatchingClient,
+} from "./matching-client";
 
 type Identity = {
   uid: string;
@@ -29,6 +35,7 @@ export type ApiOptions = {
   organizerUids?: Set<string>;
   staticDirectory?: string;
   allowedOrigins?: Set<string>;
+  matchingClient?: MatchingClient;
 };
 class ApiError extends Error {
   constructor(
@@ -69,6 +76,11 @@ function send(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value));
 }
 export function createApi(options: ApiOptions) {
+  const matching = matchingRoutes(
+    options.repository,
+    options.matchingClient,
+    options.cvStorage,
+  );
   const sessions = new Map<string, { session: Session; expires: number }>();
   async function authenticate(
     request: IncomingMessage,
@@ -231,6 +243,20 @@ export function createApi(options: ApiOptions) {
         });
       }
       if (
+        url.pathname.startsWith("/api/matching/") &&
+        (request.method === "POST" ||
+          (request.method === "GET" &&
+            url.pathname === "/api/matching/cv/proposal"))
+      ) {
+        const session = await authenticate(request, url);
+        const result = await matching.handle(
+          url.pathname.slice("/api/matching/".length),
+          session,
+          request.method === "POST" ? await body(request) : {},
+        );
+        return send(response, 200, result);
+      }
+      if (
         (url.pathname === "/api/cv" &&
           ["GET", "POST"].includes(request.method ?? "")) ||
         (url.pathname === "/api/cv/remove" && request.method === "POST")
@@ -330,10 +356,24 @@ export function createApi(options: ApiOptions) {
           await storage
             .remove(uid, oldPath)
             .catch(() => console.error("Previous CV cleanup failed."));
+        matching.invalidate(uid);
+        if (oldPath && options.matchingClient)
+          await options.matchingClient
+            .call("remove_cv", uid, result.state, { storage_path: oldPath })
+            .catch(() =>
+              console.error(
+                "Matching CV invalidation unavailable; canonical revision guards remain required.",
+              ),
+            );
         return send(response, 200, {
           state: view(result.state, session),
           organizer: session.organizer,
           message: document ? "CV uploaded privately." : "CV removed.",
+          ...(await queueMatchingSync(
+            options.matchingClient,
+            options.repository,
+            uid,
+          )),
         });
       }
       if (url.pathname === "/api/actions" && request.method === "POST") {
@@ -342,8 +382,24 @@ export function createApi(options: ApiOptions) {
         const result = await options.repository.update((state) =>
           execute(state, session, input),
         );
+        const actionType =
+          input && typeof input === "object" && "type" in input
+            ? input.type
+            : null;
+        const sync =
+          !result.error &&
+          ["UPDATE_PROFILE", "CREATE_EVENT", "UPDATE_EVENT"].includes(
+            String(actionType),
+          )
+            ? await queueMatchingSync(
+                options.matchingClient,
+                options.repository,
+                session.personId,
+              )
+            : {};
         return send(response, result.error ? 400 : 200, {
           ...result,
+          ...sync,
           state: view(result.state, session),
           organizer: session.organizer,
         });
@@ -382,6 +438,10 @@ export function createApi(options: ApiOptions) {
       }
       throw new ApiError(404, "Not found.");
     } catch (error) {
+      if (error instanceof MatchingRouteError)
+        return send(response, error.status, { error: error.message });
+      if (error instanceof MatchingUnavailable)
+        return send(response, 503, { error: error.message });
       if (error instanceof ApiError)
         return send(response, error.status, { error: error.message });
       console.error(

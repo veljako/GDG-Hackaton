@@ -1,5 +1,7 @@
 import { useSearchParams } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MatchingControls } from "../components/MatchingControls";
+import type { SemanticResponse } from "../backend";
 import { useDemo } from "../store";
 import { eventKinds, formats, searchEvents, kindLabel } from "../discovery";
 import { EventCard } from "../components/events";
@@ -26,6 +28,11 @@ export default function Events() {
     commitParams(next);
   };
   const personal = get("view") === "for-you";
+  const [semantic, setSemantic] = useState<{
+    key: string;
+    result: SemanticResponse;
+  } | null>(null);
+  const semanticKey = params.toString();
   const matches = new Map(
     (state.recommendations ?? []).map((r) => [r.eventId, r]),
   );
@@ -40,7 +47,7 @@ export default function Events() {
     available: get("available") === "1",
     past: get("past") === "1",
   });
-  const events = personal
+  const structured = personal
     ? found
         .filter((e) => matches.has(e.id))
         .sort(
@@ -48,6 +55,12 @@ export default function Events() {
             (matches.get(b.id)?.score ?? 0) - (matches.get(a.id)?.score ?? 0),
         )
     : found;
+  const events =
+    semantic?.key === semanticKey
+      ? semantic.result.results.flatMap((r) =>
+          state.events.filter((e) => e.id === r.eventId),
+        )
+      : structured;
   const topics = [
     ...new Set(
       state.events.filter((e) => e.status !== "draft").flatMap((e) => e.tags),
@@ -72,6 +85,23 @@ export default function Events() {
           For you
         </button>
       </div>
+      <MatchingControls
+        route={personal ? "recommendations" : "search"}
+        input={{
+          query: get("q"),
+          filters: {
+            kind: get("kind"),
+            topic: get("topic"),
+            city: get("city"),
+            format: get("format"),
+            from: get("from"),
+            to: get("to"),
+            available: get("available") === "1",
+            past: get("past") === "1",
+          },
+        }}
+        onResults={(result) => setSemantic({ key: semanticKey, result })}
+      />
       <section
         className="panel event-search-panel"
         aria-label="Advanced event search"

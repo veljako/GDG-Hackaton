@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSeedState } from "../src/seed";
 import { execute, view } from "./service";
 
@@ -9,6 +9,38 @@ const attendee = {
   demo: true,
 };
 describe("server authority", () => {
+  it("uses distinct revisions for profile and event edits in the same millisecond", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-11T01:00:00Z"));
+    try {
+      const state = createSeedState();
+      const first = execute(state, attendee, { type: "UPDATE_PROFILE", personId: "luka", changes: { title: "First" } });
+      const second = execute(first.state, attendee, { type: "UPDATE_PROFILE", personId: "luka", changes: { title: "Second" } });
+      expect(second.error).toBeUndefined();
+      expect(second.state.people.find((p) => p.id === "luka")!.updated_at)
+        .not.toBe(first.state.people.find((p) => p.id === "luka")!.updated_at);
+      const organizer = { ...attendee, organizer: true, mode: "organizer" as const };
+      const eventId = state.events[0].id;
+      const before = execute(state, organizer, { type: "UPDATE_EVENT", eventId, changes: { title: "First" } });
+      const after = execute(before.state, organizer, { type: "UPDATE_EVENT", eventId, changes: { title: "Second" } });
+      expect(after.error).toBeUndefined();
+      expect(Reflect.get(after.state.events[0], "updated_at")).not.toBe(Reflect.get(before.state.events[0], "updated_at"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("advances the database event revision when an organizer edits an imported event", () => {
+    const state = createSeedState();
+    const event = state.events[0];
+    Object.assign(event, { updated_at: "import-version-1" });
+    const result = execute(state, { ...attendee, organizer: true, mode: "organizer" }, {
+      type: "UPDATE_EVENT", eventId: event.id, changes: { title: "Organizer edit" },
+    });
+    expect(result.error).toBeUndefined();
+    const edited = result.state.events.find((e) => e.id === event.id)!;
+    expect(edited).toHaveProperty("updated_at", expect.any(String));
+    expect(edited).not.toHaveProperty("updated_at", "import-version-1");
+  });
   it("cannot gain organizer privileges with a client mode", () => {
     const state = createSeedState();
     expect(

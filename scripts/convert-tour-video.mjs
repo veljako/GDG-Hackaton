@@ -47,13 +47,15 @@ const browser = await chromium.launch({
     "C:/Users/urosd/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe",
 });
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(address + "/");
   console.log("Encoding the verified browser recording to H.264 MP4...");
   const result = await page.evaluate(async (url) => {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
+    video.style.width = "1440px";
+    video.style.height = "900px";
     video.src = url;
     document.body.append(video);
     await new Promise((resolve, reject) => {
@@ -63,7 +65,17 @@ try {
     const mime = "video/mp4;codecs=avc1.42E01E";
     if (!MediaRecorder.isTypeSupported(mime))
       throw new Error("This Chromium build cannot encode H.264 MP4");
-    const recorder = new MediaRecorder(video.captureStream(), {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    let drawing = true;
+    function draw() {
+      context.drawImage(video, 0, 0);
+      if (drawing) video.requestVideoFrameCallback(draw);
+    }
+    draw();
+    const recorder = new MediaRecorder(canvas.captureStream(25), {
       mimeType: mime,
       videoBitsPerSecond: 3500000,
     });
@@ -82,6 +94,7 @@ try {
       video.onended = resolve;
     });
     recorder.stop();
+    drawing = false;
     await stopped;
     const blob = new Blob(chunks, { type: mime });
     const base64 = await new Promise((resolve) => {
@@ -101,15 +114,42 @@ try {
   await fs.writeFile(final, Buffer.from(result.base64, "base64"));
   const decoded = await page.evaluate(async (url) => {
     const video = document.createElement("video");
+    video.muted = true;
     video.src = url;
     await new Promise((resolve, reject) => {
       video.onloadedmetadata = resolve;
       video.onerror = reject;
     });
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    const frameChecks = [];
+    for (const seconds of [30, 85, 101]) {
+      await new Promise((resolve) => {
+        video.onseeked = resolve;
+        video.currentTime = seconds;
+      });
+      context.drawImage(video, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let sum = 0;
+      let squares = 0;
+      let count = 0;
+      for (let index = 0; index < pixels.length; index += 400) {
+        const value = pixels[index];
+        sum += value;
+        squares += value * value;
+        count++;
+      }
+      const variance = squares / count - (sum / count) ** 2;
+      if (variance < 100) throw new Error(`Blank encoded frame at ${seconds}s`);
+      frameChecks.push({ seconds, variance });
+    }
     return {
       duration: video.duration,
       width: video.videoWidth,
       height: video.videoHeight,
+      frameChecks,
     };
   }, address + "/final.mp4");
   if (

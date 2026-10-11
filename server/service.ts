@@ -3,6 +3,7 @@ import type { DemoState, Transition } from "../src/types";
 import { actionSchema } from "./schema";
 import { recommendationsFor, registrationOpen } from "../src/discovery";
 import { publicPerson } from "./users";
+import { requiresOnboarding } from "../src/onboarding";
 
 export type Session = {
   personId: string;
@@ -22,6 +23,11 @@ export function execute(
   const action = parsed.data;
   if (!state.people.some((p) => p.id === session.personId))
     return fail("Profile not found. Sign in again.");
+  if (
+    requiresOnboarding(state.people.find((p) => p.id === session.personId)!) &&
+    action.type !== "UPDATE_PROFILE"
+  )
+    return fail("Finish your profile setup before joining the community.");
   const asOrganizer = session.organizer && session.mode === "organizer";
   if (
     ["CREATE_EVENT", "UPDATE_EVENT", "REVIEW_APPLICATION", "RESET"].includes(
@@ -103,17 +109,24 @@ export function execute(
   const nextRevision = (previous: unknown): string => {
     const prior = typeof previous === "string" ? Date.parse(previous) : NaN;
     const current = Date.parse(now);
-    return new Date(Number.isFinite(prior) && prior >= current ? prior + 1 : current).toISOString();
+    return new Date(
+      Number.isFinite(prior) && prior >= current ? prior + 1 : current,
+    ).toISOString();
   };
   if (action.type === "UPDATE_PROFILE")
     result.state.people.find((p) => p.id === session.personId)!.updated_at =
-      nextRevision(state.people.find((p) => p.id === session.personId)?.updated_at);
+      nextRevision(
+        state.people.find((p) => p.id === session.personId)?.updated_at,
+      );
   if (action.type === "CREATE_EVENT" || action.type === "UPDATE_EVENT") {
     const eventId =
       action.type === "CREATE_EVENT" ? result.createdId : action.eventId;
     const event = result.state.events.find((e) => e.id === eventId);
     const previous = state.events.find((e) => e.id === eventId);
-    if (event) Object.assign(event, { updated_at: nextRevision(Reflect.get(previous ?? {}, "updated_at")) });
+    if (event)
+      Object.assign(event, {
+        updated_at: nextRevision(Reflect.get(previous ?? {}, "updated_at")),
+      });
     if (
       event &&
       previous &&
@@ -170,11 +183,16 @@ export function execute(
 export function view(state: DemoState, session: Session): DemoState {
   const result = structuredClone(state);
   const current = state.people.find((p) => p.id === session.personId);
-  result.recommendations = current ? recommendationsFor(state, current) : [];
-  result.people = result.people.map((p) => {
-    if (p.id === session.personId) return p;
-    return publicPerson(p);
-  });
+  result.recommendations =
+    current && !requiresOnboarding(current)
+      ? recommendationsFor(state, current)
+      : [];
+  result.people = result.people
+    .filter((p) => p.id === session.personId || !requiresOnboarding(p))
+    .map((p) => {
+      if (p.id === session.personId) return p;
+      return publicPerson(p);
+    });
   result.currentPersonId = session.personId;
   result.mode =
     session.organizer && session.mode === "organizer"

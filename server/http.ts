@@ -14,6 +14,10 @@ import type { CvStorage } from "./cv-storage";
 import { normalizePerson } from "../src/user-profile";
 import { matchingRoutes, MatchingRouteError } from "./matching-routes";
 import {
+  onboardingRoutes,
+  deliverOnboardingMatching,
+} from "./onboarding-routes";
+import {
   MatchingUnavailable,
   queueMatchingSync,
   type MatchingClient,
@@ -76,6 +80,10 @@ function send(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value));
 }
 export function createApi(options: ApiOptions) {
+  const onboarding = onboardingRoutes(
+    options.repository,
+    options.matchingClient,
+  );
   const matching = matchingRoutes(
     options.repository,
     options.matchingClient,
@@ -136,6 +144,15 @@ export function createApi(options: ApiOptions) {
             kaggle: "",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            ...(!options.organizerUids?.has(identity.uid)
+              ? {
+                  onboarding: {
+                    version: 1 as const,
+                    status: "required" as const,
+                    completed_at: null,
+                  },
+                }
+              : {}),
           });
           state.people.push(person);
         }
@@ -155,7 +172,7 @@ export function createApi(options: ApiOptions) {
       demo: false,
     };
   }
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
       const origin = request.headers.origin;
@@ -241,6 +258,23 @@ export function createApi(options: ApiOptions) {
           state: view(await options.repository.read(), session),
           organizer: session.organizer,
         });
+      }
+      if (
+        url.pathname.startsWith("/api/onboarding/") &&
+        ["GET", "POST"].includes(request.method ?? "")
+      ) {
+        const session = await authenticate(request, url);
+        if (
+          request.method === "GET" &&
+          url.pathname !== "/api/onboarding/draft"
+        )
+          throw new ApiError(405, "Use the setup form to finish your profile.");
+        const result = await onboarding.handle(
+          url.pathname.slice("/api/onboarding/".length),
+          session,
+          request.method === "POST" ? await body(request) : undefined,
+        );
+        return send(response, 200, result);
       }
       if (
         url.pathname.startsWith("/api/matching/") &&
@@ -453,4 +487,41 @@ export function createApi(options: ApiOptions) {
       });
     }
   });
+  // Retry the durable onboarding handoff independently of browser sessions or later profile edits.
+  let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let retrying = false;
+  async function retryPendingMatching() {
+    if (retrying || !options.matchingClient) return;
+    retrying = true;
+    try {
+      const pending = (await options.repository.read()).people
+        .filter(
+          (p) =>
+            p.onboarding?.status === "completed" &&
+            p.onboarding.matching_sync === "pending",
+        )
+        .slice(0, 20);
+      for (const person of pending)
+        await deliverOnboardingMatching(
+          options.repository,
+          options.matchingClient,
+          person.id,
+        );
+    } catch {
+      console.error("Pending profile matching will retry.");
+    } finally {
+      retrying = false;
+    }
+  }
+  server.once("listening", () => {
+    if (options.matchingClient) {
+      void retryPendingMatching();
+      retryTimer = setInterval(() => void retryPendingMatching(), 30000);
+      retryTimer.unref();
+    }
+  });
+  server.once("close", () => {
+    if (retryTimer) clearInterval(retryTimer);
+  });
+  return server;
 }

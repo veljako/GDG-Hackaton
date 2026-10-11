@@ -1,9 +1,13 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { createApi } from "./http";
 import type { Firestore } from "firebase-admin/firestore";
 import { FirestoreRepository } from "./repository";
 import { createSeedState } from "../src/seed";
 import { importDataset } from "./dataset";
 import { normalizePerson } from "../src/user-profile";
+import { initialReviewedProfile } from "../src/onboarding";
+import { onboardingRoutes } from "./onboarding-routes";
+import { view, execute } from "./service";
 
 // A transaction double is needed here; cloud credentials are deliberately absent.
 function database(initial: Record<string, unknown> = {}) {
@@ -50,6 +54,278 @@ function database(initial: Record<string, unknown> = {}) {
   return { db, records };
 }
 
+async function onboardingFixture() {
+  const { db, records } = database();
+  const repo = new FirestoreRepository(db);
+  const seed = createSeedState();
+  const person = seed.people[0];
+  person.onboarding = { version: 1, status: "required", completed_at: null };
+  person.updated_at = "v1";
+  person.cv_document = {
+    storage_path: "private-cv.pdf",
+    filename: "cv.pdf",
+    content_type: "application/pdf",
+    size_bytes: 200,
+    uploaded_at: "today",
+    extraction_status: "not_started",
+    extracted_at: null,
+  };
+  await repo.update(() => ({ state: seed }));
+  const extractionPath = `gdevPilots/main/cvExtractions/${person.id}`;
+  records.set(extractionPath, {
+    user_id: person.id,
+    storage_path: "private-cv.pdf",
+    source_updated_at: "v1",
+    extraction_hash: "original-extraction",
+    proposal: { skills: ["Wrong skill"] },
+  });
+  const profile = initialReviewedProfile(person, {
+    first_name: "Ada",
+    last_name: "Lovelace",
+  });
+  Object.assign(profile, {
+    city: "Belgrade",
+    title: "Research student",
+    bio: "Building science projects",
+    skills: ["Python"],
+    interests: ["Science"],
+    roles: ["Participant"],
+    status: null,
+    birth_year: null,
+    experience_level: null,
+    preferences: {
+      goals: ["Research"],
+      kinds: ["hackathon"],
+      formats: ["Online"],
+      location: "",
+      notify: false,
+    },
+  });
+  const input = {
+    profile,
+    step: "interests" as const,
+    expected_extraction_hash: "original-extraction",
+    expected_profile_updated_at: "v1",
+    expected_draft_version: null as number | null,
+  };
+  const session = {
+    personId: person.id,
+    organizer: false,
+    mode: "attendee" as const,
+    demo: false,
+  };
+  const routes = onboardingRoutes(repo);
+  return {
+    db,
+    repo,
+    records,
+    person,
+    profile,
+    input,
+    session,
+    routes,
+    extractionPath,
+  };
+}
+
+it("keeps unfinished attendees out of public discovery and blocks participation", async () => {
+  const f = await onboardingFixture();
+  const state = await f.repo.read();
+  const other = { ...f.session, personId: state.people[1].id };
+  expect(view(state, other).people.some((p) => p.id === f.person.id)).toBe(
+    false,
+  );
+  expect(
+    execute(state, f.session, {
+      type: "TOGGLE_CONNECTION",
+      personId: f.person.id,
+      otherId: state.people[1].id,
+    }).error,
+  ).toMatch(/finish.*setup/i);
+});
+
+it("saves private drafts without updating or exposing the canonical profile", async () => {
+  const f = await onboardingFixture();
+  const before = (await f.repo.read()).people[0];
+  const saved = await f.routes.handle("draft", f.session, f.input);
+  expect(saved).toMatchObject({
+    draft: { version: 1, profile: { skills: ["Python"] } },
+  });
+  expect((await f.repo.read()).people[0]).toEqual(before);
+  expect(
+    await onboardingRoutes(
+      new FirestoreRepository(database(Object.fromEntries(f.records)).db),
+    ).handle("draft", f.session),
+  ).toMatchObject({ draft: { version: 1 } });
+  expect(
+    (
+      await f.routes.handle("draft", {
+        ...f.session,
+        personId: (await f.repo.read()).people[1].id,
+      })
+    ).draft,
+  ).toBeNull();
+});
+
+it("atomically completes corrected and manually added values only after a saved review", async () => {
+  const f = await onboardingFixture();
+  await expect(
+    f.routes.handle("complete", f.session, {
+      ...f.input,
+      expected_draft_version: 1,
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await f.routes.handle("draft", f.session, f.input);
+  const result = await f.routes.handle("complete", f.session, {
+    ...f.input,
+    expected_draft_version: 1,
+  });
+  expect(result).toMatchObject({
+    state: {
+      people: expect.arrayContaining([
+        expect.objectContaining({
+          id: f.person.id,
+          skills: ["Python"],
+          onboarding: expect.objectContaining({
+            version: 1,
+            status: "completed",
+            completed_at: expect.any(String),
+          }),
+        }),
+      ]),
+    },
+  });
+  expect(f.records.get(f.extractionPath)).toMatchObject({ confirmed: true });
+  expect(await f.repo.loadOnboardingDraft(f.person.id)).toBeNull();
+  const after = (await f.repo.read()).people[0];
+  await f.routes.handle("complete", f.session, {
+    ...f.input,
+    expected_draft_version: 1,
+    profile: { ...f.profile, skills: ["Stale retry"] },
+  });
+  expect((await f.repo.read()).people[0]).toEqual(after);
+});
+
+it.each(["extraction", "attachment", "profile", "draft"])(
+  "rejects a changed %s without partial completion",
+  async (change) => {
+    const f = await onboardingFixture();
+    await f.routes.handle("draft", f.session, f.input);
+    if (change === "extraction")
+      f.records.set(f.extractionPath, {
+        ...(f.records.get(f.extractionPath) as object),
+        extraction_hash: "replacement",
+      });
+    else if (change === "draft")
+      await f.routes.handle("draft", f.session, {
+        ...f.input,
+        expected_draft_version: 1,
+      });
+    else
+      await f.repo.update((state) => {
+        if (change === "attachment")
+          state.people[0].cv_document!.storage_path = "replacement.pdf";
+        else state.people[0].updated_at = "v2";
+        return { state };
+      });
+    await expect(
+      f.routes.handle("complete", f.session, {
+        ...f.input,
+        expected_draft_version: 1,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await f.repo.read()).people[0].onboarding?.status).toBe("required");
+    expect(f.records.get(f.extractionPath)).not.toHaveProperty("confirmed");
+  },
+);
+
+it("rejects missing matching fields and forged authority fields", async () => {
+  const f = await onboardingFixture();
+  await f.routes.handle("draft", f.session, f.input);
+  await expect(
+    f.routes.handle("complete", f.session, {
+      ...f.input,
+      expected_draft_version: 1,
+      profile: { ...f.profile, skills: [] },
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    f.routes.handle("draft", f.session, {
+      ...f.input,
+      expected_draft_version: 1,
+      profile: {
+        ...f.profile,
+        email: "forged@example.com",
+        onboarding: { status: "completed" },
+      },
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  expect((await f.repo.read()).people[0].onboarding?.status).toBe("required");
+});
+
+it("persists undelivered onboarding matching and safely retries it after service recovery", async () => {
+  const f = await onboardingFixture();
+  await f.routes.handle("draft", f.session, f.input);
+  const complete = { ...f.input, expected_draft_version: 1 };
+  expect(await f.routes.handle("complete", f.session, complete)).toMatchObject({
+    matching_sync: "unavailable",
+  });
+  expect((await f.repo.read()).people[0].onboarding).toMatchObject({
+    status: "completed",
+    matching_sync: "pending",
+  });
+  const approved = (await f.repo.read()).people[0].skills;
+  let calls = 0;
+  const recovered = onboardingRoutes(f.repo, {
+    call: async (operation, _actor, state) => {
+      expect(operation).toBe("queue_sync");
+      expect(state.people[0].skills).toEqual(approved);
+      ++calls;
+      return { results: [] };
+    },
+  });
+  expect(await recovered.handle("retry-matching", f.session, {})).toMatchObject(
+    { matching_sync: "queued" },
+  );
+  expect((await f.repo.read()).people[0].onboarding).toMatchObject({
+    matching_sync: "queued",
+  });
+  expect(await recovered.handle("complete", f.session, complete)).toMatchObject(
+    { message: "Your setup is already complete." },
+  );
+  expect(calls).toBe(1);
+  expect((await f.repo.read()).people[0].skills).toEqual(approved);
+});
+
+it("recovers persisted profile matching automatically on API restart without a browser request", async () => {
+  const f = await onboardingFixture();
+  await f.routes.handle("draft", f.session, f.input);
+  await f.routes.handle("complete", f.session, {
+    ...f.input,
+    expected_draft_version: 1,
+  });
+  const restarted = new FirestoreRepository(f.db);
+  const call = vi.fn().mockResolvedValue({ results: [] });
+  const server = createApi({
+    repository: restarted,
+    mode: "firebase",
+    publicConfig: {},
+    matchingClient: { call },
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await vi.waitFor(async () =>
+      expect((await restarted.read()).people[0].onboarding?.matching_sync).toBe(
+        "queued",
+      ),
+    );
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls[0][0]).toBe("queue_sync");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 it("atomically rejects a replaced private extraction before saving public fields", async () => {
   const { db, records } = database();
   const repo = new FirestoreRepository(db);
@@ -57,13 +333,49 @@ it("atomically rejects a replaced private extraction before saving public fields
   const id = seed.people[0].id;
   await repo.update(() => ({ state: seed }));
   const path = `gdevPilots/main/cvExtractions/${id}`;
-  records.set(path, { user_id: id, storage_path: "cv.pdf", source_updated_at: "v1", extraction_hash: "replacement" });
+  records.set(path, {
+    user_id: id,
+    storage_path: "cv.pdf",
+    source_updated_at: "v1",
+    extraction_hash: "replacement",
+  });
   const before = structuredClone(records.get(`gdevPilots/main/users/${id}`));
-  const result = await repo.update(state => { state.people[0].skills = ["Obsolete proposal"]; return { state }; }, { personId: id, storagePath: "cv.pdf", extractionHash: "reviewed", sourceUpdatedAt: "v1" });
+  const result = await repo.update(
+    (state) => {
+      state.people[0].skills = ["Obsolete proposal"];
+      return { state };
+    },
+    {
+      personId: id,
+      storagePath: "cv.pdf",
+      extractionHash: "reviewed",
+      sourceUpdatedAt: "v1",
+    },
+  );
   expect(result.error).toMatch(/extraction changed/i);
   expect(records.get(`gdevPilots/main/users/${id}`)).toEqual(before);
-  records.set(path, { user_id: id, storage_path: "cv.pdf", source_updated_at: "v1", extraction_hash: "reviewed" });
-  expect((await repo.update(state => { state.people[0].skills = ["Current proposal"]; return { state }; }, { personId: id, storagePath: "cv.pdf", extractionHash: "reviewed", sourceUpdatedAt: "v1" })).error).toBeUndefined();
+  records.set(path, {
+    user_id: id,
+    storage_path: "cv.pdf",
+    source_updated_at: "v1",
+    extraction_hash: "reviewed",
+  });
+  expect(
+    (
+      await repo.update(
+        (state) => {
+          state.people[0].skills = ["Current proposal"];
+          return { state };
+        },
+        {
+          personId: id,
+          storagePath: "cv.pdf",
+          extractionHash: "reviewed",
+          sourceUpdatedAt: "v1",
+        },
+      )
+    ).error,
+  ).toBeUndefined();
 });
 
 it("stores editable documents and preserves data across repository instances", async () => {

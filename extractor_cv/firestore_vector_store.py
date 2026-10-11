@@ -65,6 +65,8 @@ class FirestoreMatchmakingStore:
         source = snapshot.to_dict() if snapshot.exists else None
         if not source or source.get('deleted') or source.get('deleted_at'):
             return False
+        if kind == 'candidate' and (source.get('onboarding') or {}).get('status') == 'required':
+            return False
         if kind == 'event' and (source.get('status') in ('draft', 'cancelled', 'archived') or source.get('published') is False):
             return False
         if 'updated_at' in markers and source.get('updated_at') != markers['updated_at']:

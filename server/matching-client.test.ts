@@ -7,6 +7,23 @@ import {
 import { createSeedState } from "../src/seed";
 afterEach(() => vi.unstubAllGlobals());
 describe("private matching client", () => {
+  it("defers matching for an unfinished actor even when its profile has usable fields", async () => {
+    const state = createSeedState();
+    state.people[0].onboarding = {
+      version: 1,
+      status: "required",
+      completed_at: null,
+    };
+    const call = vi.fn();
+    expect(
+      await queueMatchingSync(
+        { call },
+        { read: async () => state },
+        state.people[0].id,
+      ),
+    ).toEqual({ matching_sync: "deferred" });
+    expect(call).not.toHaveBeenCalled();
+  });
   it("queues a freshly read authoritative snapshot after a canonical commit", async () => {
     const state = createSeedState();
     state.people[0].updated_at = "latest-committed";

@@ -2,6 +2,23 @@ import type { Action, DemoState, Transition } from "./types";
 import type { Auth } from "firebase/auth";
 import { apiUrl } from "./api-url";
 import { migrateStorageKey } from "./storage";
+import type { OnboardingDraft, ReviewedProfile } from "./onboarding";
+export type OnboardingInput = {
+  profile: Partial<ReviewedProfile>;
+  step: "review" | "interests";
+  expected_extraction_hash: string;
+  expected_profile_updated_at: string | null;
+  expected_draft_version: number | null;
+};
+export const getOnboardingDraft = () =>
+  request<{ draft: OnboardingDraft | null }>("onboarding/draft");
+export const saveOnboardingDraft = (input: OnboardingInput) =>
+  request<{ draft: OnboardingDraft }>("onboarding/draft", input);
+export const completeOnboarding = (input: OnboardingInput) =>
+  request<Snapshot & { message: string; matching_sync?: string }>(
+    "onboarding/complete",
+    input,
+  );
 export type BackendConfig = {
   mode: "demo" | "firebase";
   firebase: Record<string, string> | null;
@@ -17,6 +34,11 @@ export type SemanticResponse = {
 };
 export const semanticMatching = (route: string, input: unknown = {}) =>
   request<SemanticResponse>(`matching/${route}`, input);
+export const retryOnboardingMatching = () =>
+  request<Snapshot & { matching_sync?: string; warnings?: string[] }>(
+    "onboarding/retry-matching",
+    {},
+  );
 const sessionKey = "gevents-api-session";
 const pendingNamesKey = "gevents-pending-registration-names";
 let config: BackendConfig;

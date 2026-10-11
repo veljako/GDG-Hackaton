@@ -8,12 +8,50 @@ import type { Transaction } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { emptyWorkspace, entityCollections } from "./dataset";
 import { toUserDocument, fromUserDocument, type UserDocument } from "./users";
+import { requiresOnboarding, type OnboardingDraft } from "../src/onboarding";
 
-export type CvExtractionGuard = { personId: string; storagePath: string; extractionHash: string; sourceUpdatedAt: string | null };
+export type CvExtractionGuard = {
+  personId: string;
+  storagePath: string;
+  extractionHash: string;
+  sourceUpdatedAt: string | null;
+  completeOnboarding?: { draftVersion: number };
+};
+export class DraftConflict extends Error {}
+type DraftContent = Omit<OnboardingDraft, "version">;
+function validateDraftSource(
+  person:
+    | {
+        updated_at?: string | null;
+        cv_document?: { storage_path: string } | null;
+        onboarding?: import("../src/types").Person["onboarding"];
+      }
+    | undefined,
+  draft: DraftContent,
+) {
+  if (
+    !person ||
+    !requiresOnboarding(person) ||
+    person.cv_document?.storage_path !== draft.cv_path ||
+    (person.updated_at ?? null) !== draft.expected_profile_updated_at
+  )
+    throw new DraftConflict(
+      "Your profile or CV changed. Reload the review before saving.",
+    );
+}
 export interface Repository {
   supportsCvExtractionGuard?: boolean;
   read(): Promise<DemoState>;
-  update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition>;
+  update(
+    fn: (state: DemoState) => Transition,
+    guard?: CvExtractionGuard,
+  ): Promise<Transition>;
+  loadOnboardingDraft?(uid: string): Promise<OnboardingDraft | null>;
+  saveOnboardingDraft?(
+    uid: string,
+    draft: DraftContent,
+    expectedVersion: number | null,
+  ): Promise<OnboardingDraft>;
 }
 export class FileRepository implements Repository {
   private queue: Promise<unknown> = Promise.resolve();
@@ -31,9 +69,68 @@ export class FileRepository implements Repository {
       throw error; // Corrupt data must never be silently reset.
     }
   }
-  update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition> {
+  private async drafts(): Promise<Record<string, OnboardingDraft>> {
+    try {
+      return JSON.parse(
+        await readFile(`${this.filename}.onboarding.json`, "utf8"),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw error;
+    }
+  }
+  async loadOnboardingDraft(uid: string): Promise<OnboardingDraft | null> {
+    await this.queue;
+    return (await this.drafts())[uid] ?? null;
+  }
+  saveOnboardingDraft(
+    uid: string,
+    draft: DraftContent,
+    expectedVersion: number | null,
+  ): Promise<OnboardingDraft> {
     const job = this.queue.then(async () => {
-      if (guard) return { state: await this.load(), error: "Atomic CV confirmation is unavailable." };
+      validateDraftSource(
+        (await this.load()).people.find((p) => p.id === uid),
+        draft,
+      );
+      const records = await this.drafts();
+      const current = records[uid];
+      const sameSource =
+        current?.cv_path === draft.cv_path &&
+        current?.extraction_hash === draft.extraction_hash &&
+        current.expected_profile_updated_at ===
+          draft.expected_profile_updated_at;
+      if ((sameSource ? current.version : null) !== expectedVersion)
+        throw new DraftConflict(
+          "Your review changed in another session. Reload it before saving.",
+        );
+      const saved = { ...draft, version: (current?.version ?? 0) + 1 };
+      records[uid] = saved;
+      await mkdir(dirname(this.filename), { recursive: true });
+      await writeFile(
+        `${this.filename}.onboarding.json.tmp`,
+        JSON.stringify(records),
+        "utf8",
+      );
+      await rename(
+        `${this.filename}.onboarding.json.tmp`,
+        `${this.filename}.onboarding.json`,
+      );
+      return saved;
+    });
+    this.queue = job.catch(() => undefined);
+    return job;
+  }
+  update(
+    fn: (state: DemoState) => Transition,
+    guard?: CvExtractionGuard,
+  ): Promise<Transition> {
+    const job = this.queue.then(async () => {
+      if (guard)
+        return {
+          state: await this.load(),
+          error: "Atomic CV confirmation is unavailable.",
+        };
       const result = fn(await this.load());
       if (!result.error) {
         await mkdir(dirname(this.filename), { recursive: true });
@@ -156,15 +253,104 @@ export class FirestoreRepository implements Repository {
       { readOnly: true },
     );
   }
-  async update(fn: (state: DemoState) => Transition, guard?: CvExtractionGuard): Promise<Transition> {
+  async loadOnboardingDraft(uid: string): Promise<OnboardingDraft | null> {
+    if (!/^[\w-]{1,128}$/.test(uid)) throw Error("Invalid draft owner.");
+    return this.db.runTransaction(
+      async (tx) => {
+        const snap = await tx.get(
+          this.db.doc(`${this.document}/onboardingDrafts/${uid}`),
+        );
+        return snap.exists ? (snap.data() as OnboardingDraft) : null;
+      },
+      { readOnly: true },
+    );
+  }
+  async saveOnboardingDraft(
+    uid: string,
+    draft: DraftContent,
+    expectedVersion: number | null,
+  ): Promise<OnboardingDraft> {
+    if (!/^[\w-]{1,128}$/.test(uid)) throw Error("Invalid draft owner.");
+    return this.db.runTransaction(async (tx) => {
+      const ref = this.db.doc(`${this.document}/onboardingDrafts/${uid}`);
+      const [user, extraction, prior] = await Promise.all([
+        tx.get(this.db.doc(`${this.document}/users/${uid}`)),
+        tx.get(this.db.doc(`${this.document}/cvExtractions/${uid}`)),
+        tx.get(ref),
+      ]);
+      validateDraftSource(
+        user.exists ? (user.data() as UserDocument) : undefined,
+        draft,
+      );
+      const row = extraction.exists ? extraction.data() : undefined;
+      if (
+        !row ||
+        row.user_id !== uid ||
+        row.storage_path !== draft.cv_path ||
+        row.extraction_hash !== draft.extraction_hash ||
+        (row.source_updated_at ?? null) !== draft.expected_profile_updated_at
+      )
+        throw new DraftConflict(
+          "Your extraction changed. Review the current CV again.",
+        );
+      const current = prior.exists ? (prior.data() as OnboardingDraft) : null;
+      const sameSource =
+        current?.cv_path === draft.cv_path &&
+        current?.extraction_hash === draft.extraction_hash &&
+        current.expected_profile_updated_at ===
+          draft.expected_profile_updated_at;
+      if ((sameSource ? current.version : null) !== expectedVersion)
+        throw new DraftConflict(
+          "Your review changed in another session. Reload it before saving.",
+        );
+      const saved = { ...draft, version: (current?.version ?? 0) + 1 };
+      tx.set(ref, JSON.parse(JSON.stringify(saved)));
+      return saved;
+    });
+  }
+  async update(
+    fn: (state: DemoState) => Transition,
+    guard?: CvExtractionGuard,
+  ): Promise<Transition> {
     return this.db.runTransaction(async (transaction) => {
       const before = await this.load(transaction);
+      let extractionRecord: Record<string, unknown> | undefined;
       if (guard) {
-        if (!guard.personId || guard.personId.includes("/")) throw Error("Invalid extraction owner.");
-        const extraction = await transaction.get(this.db.doc(`${this.document}/cvExtractions/${guard.personId}`));
+        if (!guard.personId || guard.personId.includes("/"))
+          throw Error("Invalid extraction owner.");
+        const extraction = await transaction.get(
+          this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
+        );
         const row = extraction.exists ? extraction.data() : undefined;
-        if (!row || row.user_id !== guard.personId || row.storage_path !== guard.storagePath || row.extraction_hash !== guard.extractionHash || (row.source_updated_at ?? null) !== guard.sourceUpdatedAt)
-          return { state: before.state, error: "Your extraction changed. Review it again." };
+        if (
+          !row ||
+          row.user_id !== guard.personId ||
+          row.storage_path !== guard.storagePath ||
+          row.extraction_hash !== guard.extractionHash ||
+          (row.source_updated_at ?? null) !== guard.sourceUpdatedAt
+        )
+          return {
+            state: before.state,
+            error: "Your extraction changed. Review it again.",
+          };
+        extractionRecord = row;
+        if (guard.completeOnboarding) {
+          const draft = await transaction.get(
+            this.db.doc(`${this.document}/onboardingDrafts/${guard.personId}`),
+          );
+          const saved = draft.exists ? (draft.data() as OnboardingDraft) : null;
+          if (
+            !saved ||
+            saved.version !== guard.completeOnboarding.draftVersion ||
+            saved.cv_path !== guard.storagePath ||
+            saved.extraction_hash !== guard.extractionHash ||
+            saved.expected_profile_updated_at !== guard.sourceUpdatedAt
+          )
+            return {
+              state: before.state,
+              error: "Your review changed. Reload it before finishing setup.",
+            };
+        }
       }
       const result = fn(structuredClone(before.state));
       if (result.error) return result;
@@ -194,6 +380,21 @@ export class FirestoreRepository implements Repository {
       for (const [path, record] of changed)
         transaction.set(this.db.doc(path), record);
       for (const path of removed) transaction.delete(this.db.doc(path));
+      if (guard?.completeOnboarding && extractionRecord) {
+        transaction.set(
+          this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
+          {
+            ...extractionRecord,
+            confirmed: true,
+            reviewed_profile_updated_at:
+              state.people.find((p) => p.id === guard.personId)?.updated_at ??
+              null,
+          },
+        );
+        transaction.delete(
+          this.db.doc(`${this.document}/onboardingDrafts/${guard.personId}`),
+        );
+      }
       transaction.set(this.db.doc(this.document), {
         schemaVersion: 3,
         revision: before.revision + 1,

@@ -234,6 +234,8 @@ class MatchingService:
                 raise ValueError('Embedding jobs unavailable or invalid sync request.')
             ids = []
             for person in people.values():
+                if (person.get('onboarding') or {}).get('status') == 'required':
+                    continue
                 try:
                     cv = person_cv(person)
                     candidate_narrative(cv)
@@ -274,7 +276,8 @@ class MatchingService:
             covered = {s.casefold() for uid in members for s in people.get(uid, {}).get('skills', [])}
             missing = [s for s in event_dict(event)['skills'] if s.casefold() not in covered]
             occupied = {uid for t in context['teams'] if not t.get('archived') and t.get('eventId') == event['id'] for uid in t.get('memberIds', [])}
-            candidates = [p for p in people.values() if p['id'] in accepted and p['id'] != actor and p.get('lookingForTeam') and p['id'] not in occupied]
+            candidates = [p for p in people.values() if p['id'] in accepted and p['id'] != actor and p.get('lookingForTeam') and p['id'] not in occupied
+                and (p.get('onboarding') or {}).get('status') != 'required']
             for p in candidates:
                 self.store.upsert_candidate(person_cv(p), expected_source_hash=self.store.candidate_source_hash(p['id']))
             narrative = 'Seeking a teammate for ' + event['title'] + '. Missing skills: ' + ', '.join(missing or event_dict(event)['skills']) + '. ' + query

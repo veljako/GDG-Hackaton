@@ -69,14 +69,15 @@ it("Firebase mode derives identity and organizer rights from verified tokens, ne
     cv_document: null,
     created_at: expect.any(String),
     updated_at: expect.any(String),
+    onboarding: { version: 1, status: "required", completed_at: null },
   });
   expect((await get("valid-organizer")).status).toBe(200);
   const organizer = await (await get("valid-organizer")).json();
   expect(organizer.organizer).toBe(true);
   expect(organizer.state.mode).toBe("organizer");
   expect(
-    organizer.state.people.find((p: { id: string }) => p.id === "real-uid"),
-  ).not.toHaveProperty("email");
+    organizer.state.people.some((p: { id: string }) => p.id === "real-uid"),
+  ).toBe(false);
   expect(
     (await repo.read()).people.filter((p) => p.id === "real-uid"),
   ).toHaveLength(1);

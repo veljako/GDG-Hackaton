@@ -15,6 +15,12 @@ export type Preferences = {
   notify: boolean;
 };
 export type Person = {
+  onboarding?: {
+    version: 1;
+    status: "required" | "completed";
+    completed_at: string | null;
+    matching_sync?: "pending" | "queued";
+  };
   first_name?: string;
   last_name?: string;
   email?: string | null;

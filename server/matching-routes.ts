@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Repository } from "./repository";
 import type { CvStorage } from "./cv-storage";
 import { profileSchema } from "./schema";
+import { requiresOnboarding } from "../src/onboarding";
 import { execute, view, type Session } from "./service";
 import {
   registrationOpen,
@@ -65,6 +66,11 @@ export function matchingRoutes(
       const state = await repository.read();
       const person = state.people.find((p) => p.id === session.personId)!;
       if (!person) invalid("Profile not found.", 404);
+      if (
+        requiresOnboarding(person) &&
+        !["cv/extract", "cv/proposal"].includes(route)
+      )
+        invalid("Finish your profile setup before finding matches.", 403);
       if (route === "cv/proposal") {
         if (!client || !person.cv_document) throw new MatchingUnavailable();
         const response = await client.call("cv_proposal", person.id, state, {

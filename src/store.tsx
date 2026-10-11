@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { Action, DemoState, Transition } from "./types";
 import {
@@ -28,6 +29,8 @@ import type { BackendConfig, Snapshot } from "./backend";
 import { BRAND } from "./config";
 import "./backend.css";
 import { RegistrationForm } from "./components/RegistrationForm";
+import { Onboarding } from "./components/Onboarding";
+import { requiresOnboarding } from "./onboarding";
 type Context = {
   state: DemoState;
   run: (action: Action, silent?: boolean) => Promise<Transition>;
@@ -35,10 +38,12 @@ type Context = {
   backendMode: BackendConfig["mode"];
   organizer: boolean;
   logout: () => Promise<void>;
-  saveCv: (file: File | null) => Promise<void>;
+  saveCv: (file: File | null) => Promise<boolean>;
+  refresh: () => Promise<void>;
 };
 const DemoContext = createContext<Context | null>(null);
 export function DemoProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,11 +55,37 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const refreshLock = useRef(false);
   const generation = useRef(0);
   const alive = useRef(true);
-  const accept = useCallback((next: Snapshot) => {
-    stateRef.current = next;
-    setSnapshot(next);
-    setError("");
-  }, []);
+  const accept = useCallback(
+    (next: Snapshot) => {
+      const previous = stateRef.current;
+      const before = previous?.state.people.find(
+        (p) => p.id === previous.state.currentPersonId,
+      );
+      const after = next.state.people.find(
+        (p) => p.id === next.state.currentPersonId,
+      );
+      if (
+        before &&
+        after &&
+        before.id === after.id &&
+        requiresOnboarding(before) &&
+        after.onboarding?.status === "completed"
+      ) {
+        // Polling may observe the commit while the completion request awaits matching delivery.
+        navigate("/", { replace: true });
+        if (after.onboarding.matching_sync === "pending")
+          toast("Profile saved. Matching will retry automatically.");
+        else
+          toast.success(
+            "Profile saved. Your recommendations are being prepared.",
+          );
+      }
+      stateRef.current = next;
+      setSnapshot(next);
+      setError("");
+    },
+    [navigate],
+  );
   const initialize = useCallback(async () => {
     const current = ++generation.current;
     setLoading(true);
@@ -165,7 +196,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [config, accept],
   );
   async function saveCv(file: File | null) {
-    if (!stateRef.current || lock.current) return;
+    if (!stateRef.current || lock.current) return false;
     lock.current = true;
     const current = ++generation.current;
     setBusy(true);
@@ -174,13 +205,16 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       if (alive.current && current === generation.current) {
         accept(next);
         toast.success(next.message);
+        return true;
       }
+      return false;
     } catch (error) {
       if (alive.current && current === generation.current) {
         const message = (error as Error).message;
         toast.error(message);
         setError(message);
       }
+      return false;
     } finally {
       if (alive.current && current === generation.current) {
         lock.current = false;
@@ -298,6 +332,22 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         </div>
       </main>
     );
+  const currentPerson = snapshot.state.people.find(
+    (person) => person.id === snapshot.state.currentPersonId,
+  );
+  if (currentPerson && requiresOnboarding(currentPerson))
+    return (
+      <Onboarding
+        key={currentPerson.id}
+        person={currentPerson}
+        saveCv={saveCv}
+        logout={logout}
+        onComplete={(next) => {
+          ++generation.current;
+          accept(next);
+        }}
+      />
+    );
   return (
     <DemoContext.Provider
       value={{
@@ -308,6 +358,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         organizer: snapshot.organizer,
         logout,
         saveCv,
+        refresh: retry,
       }}
     >
       {error && (

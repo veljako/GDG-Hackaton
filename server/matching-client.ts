@@ -1,4 +1,5 @@
 import type { DemoState } from "../src/types";
+import { requiresOnboarding } from "../src/onboarding";
 export type MatchingOperation =
   | "queue_sync"
   | "search_events"
@@ -36,6 +37,10 @@ export async function queueMatchingSync(
   repository: { read(): Promise<DemoState> },
   actor: string,
 ) {
+  const state = await repository.read();
+  const current = state.people.find((p) => p.id === actor);
+  if (current && requiresOnboarding(current))
+    return { matching_sync: "deferred" as const };
   if (!client)
     return {
       matching_sync: "unavailable" as const,
@@ -45,7 +50,7 @@ export async function queueMatchingSync(
     };
   try {
     // Reload after commit: concurrent writes must not notify with an old revision.
-    await client.call("queue_sync", actor, await repository.read(), {});
+    await client.call("queue_sync", actor, state, {});
     return { matching_sync: "queued" as const };
   } catch {
     return {

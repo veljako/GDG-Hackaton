@@ -1,4 +1,6 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { retryOnboardingMatching } from "../backend";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -14,7 +16,26 @@ import { EventCard } from "../components/events";
 import { BrandGeometry } from "../components/playful";
 
 export default function Home() {
-  const { state, me } = useDemo();
+  const { state, me, refresh } = useDemo();
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryMessage, setRetryMessage] = useState("");
+  async function retryMatching() {
+    if (retryBusy) return;
+    setRetryBusy(true);
+    try {
+      const result = await retryOnboardingMatching();
+      setRetryMessage(
+        result.matching_sync === "queued"
+          ? "Your recommendations are being prepared."
+          : "Matching is still unavailable. We’ll keep retrying automatically.",
+      );
+      await refresh();
+    } catch (error) {
+      setRetryMessage((error as Error).message);
+    } finally {
+      setRetryBusy(false);
+    }
+  }
   const navigate = useNavigate();
   const ownTeams = state.teams.filter(
     (t) => !isPastTeam(state, t) && t.memberIds.includes(me.id),
@@ -39,6 +60,27 @@ export default function Home() {
   );
   return (
     <div className="home-page compact-home">
+      {me.onboarding?.matching_sync === "pending" && (
+        <section
+          className="onboarding-matching-notice"
+          aria-label="Profile matching status"
+        >
+          <div>
+            <strong>Your profile is saved.</strong>
+            <p role="status">
+              {retryMessage ||
+                "Personalized matching is temporarily unavailable. We’ll retry automatically; you can explore events meanwhile."}
+            </p>
+          </div>
+          <Button
+            variant="outlined"
+            disabled={retryBusy}
+            onClick={() => void retryMatching()}
+          >
+            {retryBusy ? "Retrying…" : "Retry matching"}
+          </Button>
+        </section>
+      )}
       <div className="welcome-line">
         <h1>
           Hey, {me.name.split(" ")[0]}

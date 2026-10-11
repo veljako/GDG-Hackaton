@@ -123,7 +123,7 @@ export default function Organizer() {
           </div>
         }
       />
-      <div className="organizer-event-picker">
+      <div className="organizer-event-picker" data-tour="organizer-event">
         <div className="inline-select">
           <span>Managing</span>
           <CustomSelect
@@ -333,7 +333,7 @@ export default function Organizer() {
         />
       )}
       {tab === "Applications" && organizationAdmin && (
-        <section className="panel applications-panel">
+        <section className="panel applications-panel" data-tour="organizer-review">
           <SectionTitle
             title="Every good team starts with people"
             subtitle="Review the person first. Team status follows their admission automatically."

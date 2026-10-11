@@ -140,6 +140,7 @@ export default function Events() {
       />
       <section
         className="panel event-search-panel"
+        data-tour="event-search"
         aria-label="Advanced event search"
       >
         <Search
@@ -289,7 +290,7 @@ export default function Events() {
         </span>
       </div>
       {!invalidDates && events.length ? (
-        <div className="events-grid discover-events">
+        <div className="events-grid discover-events" data-tour="event-results">
           {pagination.items.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}

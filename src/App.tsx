@@ -31,6 +31,7 @@ import { BrandMark } from "./components/visuals";
 import { Avatar, Button, Empty, IconButton, Modal } from "./components/ui";
 import { PageLoader } from "./components/playful";
 import { useTheme } from "./theme";
+import { GuidedTour } from "./components/GuidedTour";
 
 const Home = lazy(() => import("./pages/Home"));
 const Hackathons = lazy(() => import("./pages/Events"));
@@ -211,6 +212,7 @@ export default function App() {
             <span className="brand-wordmark">{BRAND.name}</span>
           </NavLink>
           <div className="header-actions">
+            <GuidedTour />
             <IconButton
               label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
               onClick={toggleTheme}

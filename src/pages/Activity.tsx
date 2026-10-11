@@ -73,7 +73,7 @@ function ActivityContent() {
           </Button>
         }
       />
-      <div className="activity-summary">
+      <div className="activity-summary" data-tour="activity">
         <div className="activity-summary-item">
           <span className="color-green">
             <CheckCircle size={23} />

@@ -180,38 +180,42 @@ function ProfileContent() {
               {me.bio ||
                 "Add a few words about yourself so your next teammates can get to know you."}
             </p>
-            <h3 className="detail-label">What I bring</h3>
-            <div className="skill-list">
-              {me.skills.length ? (
-                me.skills.map((skill) => <span key={skill}>{skill}</span>)
-              ) : (
-                <p className="muted">
-                  Add your skills when you edit your profile.
-                </p>
+            <div data-tour="profile-fit">
+              <h3 className="detail-label">What I bring</h3>
+              <div className="skill-list">
+                {me.skills.length ? (
+                  me.skills.map((skill) => <span key={skill}>{skill}</span>)
+                ) : (
+                  <p className="muted">
+                    Add your skills when you edit your profile.
+                  </p>
+                )}
+              </div>
+              {!!me.learningSkills?.length && (
+                <>
+                  <h3 className="detail-label">What I want to learn</h3>
+                  <div className="skill-list">
+                    {me.learningSkills.map((skill) => (
+                      <span key={skill}>{skill}</span>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
-            {!!me.learningSkills?.length && (
-              <>
-                <h3 className="detail-label">What I want to learn</h3>
-                <div className="skill-list">
-                  {me.learningSkills.map((skill) => (
-                    <span key={skill}>{skill}</span>
-                  ))}
-                </div>
-              </>
-            )}
             <h3 className="detail-label">My experience</h3>
             <p className="profile-experience">
               {me.experience ||
                 "Everyone starts somewhere. Share what you’ve tried so far."}
             </p>
-            <h3 className="detail-label">Happy to join as</h3>
-            <div className="skill-list">
-              {me.roles.map((role) => (
-                <Badge color="blue" key={role}>
-                  {role}
-                </Badge>
-              ))}
+            <div data-tour="profile-roles">
+              <h3 className="detail-label">Happy to join as</h3>
+              <div className="skill-list">
+                {me.roles.map((role) => (
+                  <Badge color="blue" key={role}>
+                    {role}
+                  </Badge>
+                ))}
+              </div>
             </div>
             <h3 className="detail-label">Things I’m curious about</h3>
             <div className="skill-list">

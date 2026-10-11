@@ -89,7 +89,7 @@ export default function Home() {
         </h1>
         <TextLink onClick={() => navigate("/profile")}>Your profile</TextLink>
       </div>
-      <section className="bold-hero">
+      <section className="bold-hero" data-tour="welcome">
         <div className="bold-hero-copy">
           <h2>
             Big ideas.

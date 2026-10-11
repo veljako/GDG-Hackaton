@@ -1,0 +1,250 @@
+[
+  {
+    "skills": [
+      "Cardiology",
+      "Echocardiography",
+      "ECG interpretation",
+      "Heart failure management",
+      "Interventional cardiology",
+      "Cardiac catheterization",
+      "Hypertension",
+      "ACLS",
+      "Clinical research",
+      "Patient counseling"
+    ],
+    "general_description": "Board-certified cardiologist focused on heart failure and preventive cardiology in a university hospital. Runs an outpatient clinic and supports the catheterization lab for diagnostic procedures. Published work on early detection of cardiomyopathy and regularly supervises residents on the ward.",
+    "location": "Belgrade, Serbia",
+    "status": "Employed",
+    "birth_year": 1979,
+    "experience_level": "Senior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Neurology",
+      "Stroke care",
+      "EEG",
+      "EMG",
+      "Multiple sclerosis",
+      "Headache medicine",
+      "Neuroimaging",
+      "Lumbar puncture",
+      "Clinical trials",
+      "Multidisciplinary case review"
+    ],
+    "general_description": "Neurologist working in an acute stroke unit and a general neurology clinic. Manages thrombolysis pathways, outpatient MS follow-up, and EEG reporting. Collaborates with rehabilitation and neurosurgery teams on complex cases.",
+    "location": "Novi Sad, Serbia",
+    "status": "Employed",
+    "birth_year": 1986,
+    "experience_level": "Mid",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Pediatrics",
+      "Neonatal care",
+      "Vaccination programs",
+      "Pediatric emergency",
+      "Growth and development",
+      "Asthma management",
+      "Infectious disease",
+      "Family counseling",
+      "Pediatric resuscitation",
+      "PALS"
+    ],
+    "general_description": "Pediatrician in a regional children's hospital, covering the ward, neonatal nursery, and emergency admissions. Builds vaccination and asthma follow-up programs for local clinics. Known for clear communication with parents during acute visits.",
+    "location": "Niš, Serbia",
+    "status": "Employed",
+    "birth_year": 1991,
+    "experience_level": "Mid",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Diagnostic radiology",
+      "CT",
+      "MRI",
+      "Ultrasound",
+      "Oncologic imaging",
+      "PACS",
+      "Image-guided biopsy",
+      "DICOM",
+      "Reporting",
+      "Multidisciplinary tumor board"
+    ],
+    "general_description": "Radiologist reading CT, MRI, and ultrasound for a multi-site hospital network, with a focus on oncologic staging. Joins weekly tumor boards and performs image-guided biopsies. Helped standardize structured reporting templates across departments.",
+    "location": "Zagreb, Croatia",
+    "status": "Employed",
+    "birth_year": 1984,
+    "experience_level": "Senior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Emergency medicine",
+      "Trauma care",
+      "Triage",
+      "Point-of-care ultrasound",
+      "Airway management",
+      "ATLS",
+      "ACLS",
+      "Sepsis protocols",
+      "Procedural sedation",
+      "Shift leadership"
+    ],
+    "general_description": "Emergency medicine specialist in a high-volume city ER, handling trauma, chest pain, and sepsis pathways. Leads night shifts and teaches point-of-care ultrasound to junior doctors. Interested in shorter door-to-treatment times for stroke and STEMI.",
+    "location": "Vienna, Austria",
+    "status": "Employed",
+    "birth_year": 1995,
+    "experience_level": "Junior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Medical oncology",
+      "Chemotherapy",
+      "Immunotherapy",
+      "Clinical trials",
+      "Tumor board",
+      "Palliative care",
+      "Breast cancer",
+      "Lung cancer",
+      "RECIST",
+      "Patient communication"
+    ],
+    "general_description": "Medical oncologist treating solid tumors, mainly breast and lung cancer, in a comprehensive cancer center. Designs systemic therapy plans and enrolls patients in phase II and III trials. Works closely with radiology, surgery, and palliative care.",
+    "location": "Ljubljana, Slovenia",
+    "status": "Employed",
+    "birth_year": 1976,
+    "experience_level": "Senior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "Roadmapping",
+      "User research",
+      "A/B testing",
+      "SQL",
+      "Figma",
+      "Agile",
+      "Stakeholder management",
+      "Go-to-market",
+      "Payments",
+      "Fintech",
+      "OKRs"
+    ],
+    "general_description": "Senior product manager for a consumer payments app used across the Balkans. Owns onboarding and checkout, from discovery interviews through launch and experiment readout. Partners with engineering, risk, and marketing to ship features that raise activation and reduce failed payments.",
+    "location": "Belgrade, Serbia",
+    "status": "Employed",
+    "birth_year": 1990,
+    "experience_level": "Senior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "Healthtech",
+      "HIPAA",
+      "Clinical workflows",
+      "Backlog grooming",
+      "User stories",
+      "Jira",
+      "Analytics",
+      "SQL",
+      "Discovery",
+      "B2B SaaS",
+      "Stakeholder interviews"
+    ],
+    "general_description": "Product manager building scheduling and referral tools for outpatient clinics. Spends time in hospitals mapping how nurses and doctors actually book visits, then turns that into a prioritized backlog. Shipped a referral tracker that cut lost appointments for two pilot clinics.",
+    "location": "Berlin, Germany",
+    "status": "Employed",
+    "birth_year": 1993,
+    "experience_level": "Mid",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "Mobile apps",
+      "User interviews",
+      "Wireframing",
+      "Figma",
+      "Analytics",
+      "Amplitude",
+      "Scrum",
+      "Prioritization",
+      "Copywriting",
+      "Growth experiments"
+    ],
+    "general_description": "Junior product manager on a lifestyle mobile app, owning the home feed and notification settings. Runs weekly user interviews and small growth experiments with the design and engineering pair. Looking for broader ownership of a full feature area.",
+    "location": "Novi Sad, Serbia",
+    "status": "Employed",
+    "birth_year": 1999,
+    "experience_level": "Junior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "B2B SaaS",
+      "Enterprise sales support",
+      "Pricing",
+      "Roadmapping",
+      "SQL",
+      "Mixpanel",
+      "API products",
+      "Developer experience",
+      "Competitive analysis",
+      "OKRs",
+      "Workshops"
+    ],
+    "general_description": "Senior product manager for a B2B analytics platform sold to operations teams. Defines the public API and admin console, and joins enterprise deals when buyers need a product deep-dive. Built a usage-based pricing package that became the default plan for new accounts.",
+    "location": "Amsterdam, Netherlands",
+    "status": "Employed",
+    "birth_year": 1988,
+    "experience_level": "Senior",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "Marketplaces",
+      "Two-sided platforms",
+      "Experimentation",
+      "SQL",
+      "Funnel analysis",
+      "Trust and safety",
+      "Search ranking",
+      "Agile",
+      "Stakeholder management",
+      "Notion"
+    ],
+    "general_description": "Product manager for a local services marketplace, responsible for search ranking and supplier onboarding. Uses funnel data to decide which friction to remove for new providers. Works with trust and safety on review quality and repeat-booking incentives.",
+    "location": "Munich, Germany",
+    "status": "Employed",
+    "birth_year": 1992,
+    "experience_level": "Mid",
+    "_backend": "generate"
+  },
+  {
+    "skills": [
+      "Product management",
+      "User research",
+      "Problem framing",
+      "Prototyping",
+      "Figma",
+      "SQL basics",
+      "Agile",
+      "Writing specs",
+      "Competitor teardowns",
+      "Presentation"
+    ],
+    "general_description": "Associate product manager intern on an internal tools team at a software company. Writes specs for small workflow fixes, sits in on customer calls, and prototypes alternatives in Figma before engineering starts. Studying product management and looking for a return offer.",
+    "location": "Belgrade, Serbia",
+    "status": "Student",
+    "birth_year": 2002,
+    "experience_level": "Student / Junior",
+    "_backend": "generate"
+  }
+]

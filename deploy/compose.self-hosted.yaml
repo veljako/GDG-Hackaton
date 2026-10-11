@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file: ./backend.env
+    environment:
+      NODE_ENV: production
+      GEVENTS_BACKEND_MODE: firebase
+      GEVENTS_API_HOST: 0.0.0.0
+      GEVENTS_API_PORT: "8080"
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+    ports:
+      - "127.0.0.1:${GEVENTS_SELF_HOST_PORT:-5181}:8080"
+    volumes:
+      - type: bind
+        source: "${GEVENTS_FIREBASE_CREDENTIALS:?Set an absolute path to the Firebase service account file}"
+        target: /run/secrets/firebase-admin.json
+        read_only: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

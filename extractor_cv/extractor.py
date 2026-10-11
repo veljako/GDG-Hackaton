@@ -33,6 +33,23 @@ HEADERS = {"ngrok-skip-browser-warning": "1"}
 CV_SCHEMA = {
     "type": "object",
     "properties": {
+        "first_name": {"type": ["string", "null"]},
+        "last_name": {"type": ["string", "null"]},
+        "current_role": {"type": ["string", "null"]},
+        "education": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "institution": {"type": "string"},
+                    "kind": {"type": ["string", "null"], "enum": ["high school", "college", "university", None]},
+                    "degree": {"type": ["string", "null"]},
+                    "field": {"type": ["string", "null"]},
+                },
+                "required": ["institution", "kind", "degree", "field"],
+                "additionalProperties": False,
+            },
+        },
         "skills": {"type": "array", "items": {"type": "string"}},
         "general_description": {"type": "string"},
         "location": {"type": ["string", "null"]},
@@ -40,7 +57,18 @@ CV_SCHEMA = {
         "birth_year": {"type": ["integer", "null"]},
         "experience_level": {"type": "string"},
     },
-    "required": ["skills", "general_description", "location", "status", "birth_year", "experience_level"],
+    "required": [
+        "first_name",
+        "last_name",
+        "current_role",
+        "education",
+        "skills",
+        "general_description",
+        "location",
+        "status",
+        "birth_year",
+        "experience_level",
+    ],
     "additionalProperties": False,
 }
 
@@ -73,6 +101,10 @@ def build_prompt(cv_text: str) -> str:
 You are an AI CV parser. Extract the requested information from the CV text below and return it as a JSON object.
 
 Field meanings:
+- "first_name": given name only, or null if the CV does not state one. Do not guess.
+- "last_name": family name only, or null if it is missing. If the CV gives one full name, put the first word in first_name and the rest in last_name.
+- "current_role": the person's current position or job title, such as "Student", "Software Engineer" or "Developer". Null if the CV does not state one. Do not guess, and do not put a seniority level here.
+- "education": schools and universities the person attended. Each item has "institution" (the school name), "kind" ("high school", "college", "university", or null), "degree" (or null) and "field" of study (or null). Use an empty array if none are stated.
 - "skills": array of strings (e.g. ["Python", "C++", "Docker"])
 - "general_description": a short summary of the profile and projects, in 2-3 sentences
 - "location": city and country (string, or null if missing)
@@ -125,7 +157,11 @@ def _call_generate(api_url: str, prompt: str, max_retries: int = 1) -> dict:
     raw = ""
 
     for _ in range(max_retries + 1):
-        r = requests.post(api_url, json={"prompt": current_prompt}, headers=HEADERS, timeout=120)
+        try:
+            r = requests.post(api_url, json={"prompt": current_prompt}, headers=HEADERS, timeout=180)
+        except requests.Timeout as error:
+            last_error = f"Request timed out: {error}"
+            continue
         if r.status_code != 200:
             raise RuntimeError(f"Server error: {r.status_code} {r.text[:300]}")
 
@@ -200,7 +236,7 @@ def process_and_save_confirmed_cv(confirmed_data: dict, user_id: str) -> dict:
 # ============================================================================
 if __name__ == "__main__":
     # Path to your PDF or JPG file
-    file_path = "tr_cv\Luka_Prlincevic_CV.pdf"  # or "sample_cv.jpg"
+    file_path = "tr_cv/Luka_Prlincevic_CV.pdf"  # or "sample_cv.jpg"
 
     try:
         print(f"1. Extracting text from '{file_path}'...")

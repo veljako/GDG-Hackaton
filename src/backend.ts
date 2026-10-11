@@ -70,6 +70,7 @@ export async function refreshEmailVerification() {
   return getSnapshot();
 }
 export type SemanticResponse = {
+  outcome?: "matched" | "no_suitable_event";
   source?: string;
   results: { eventId?: string; personId?: string; reasons: string[] }[];
   warnings?: string[];

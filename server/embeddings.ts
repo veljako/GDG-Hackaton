@@ -3,7 +3,7 @@ import { z } from "zod";
 import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { readOnlySnapshot } from "./firestore-read";
 
-export type EmbeddingKind = "user" | "hackathon";
+export type EmbeddingKind = "user" | "hackathon" | "event";
 const id = z
   .string()
   .min(1)
@@ -55,7 +55,8 @@ function collections(kind: EmbeddingKind) {
   if (kind === "user") return { source: "users", vectors: "userEmbeddings" };
   if (kind === "hackathon")
     return { source: "events", vectors: "hackathonEmbeddings" };
-  throw Error("Embedding kind must be user or hackathon.");
+  if (kind === "event") return { source: "events", vectors: "eventEmbeddings" };
+  throw Error("Embedding kind must be user, event or hackathon.");
 }
 function validSource(
   kind: EmbeddingKind,
@@ -64,7 +65,9 @@ function validSource(
 ) {
   return kind === "user"
     ? record.user_id === entityId
-    : record.id === entityId && (record.kind ?? "hackathon") === "hackathon";
+    : record.id === entityId && (kind === "event"
+      ? ["hackathon", "conference", "meetup", "workshop", "festival"].includes(String(record.kind ?? "hackathon"))
+      : (record.kind ?? "hackathon") === "hackathon");
 }
 
 /** Trusted server/worker access only; never expose this repository directly to browsers. */

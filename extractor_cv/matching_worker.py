@@ -22,6 +22,7 @@ from firebase_store import WORKSPACE, get_db, user_document
 from firestore_vector_store import FirestoreMatchmakingStore
 from google.cloud import firestore
 from vector_store import candidate_narrative
+from recommendation_policy import suitable_similarity
 
 OPERATIONS = frozenset(('queue_sync', 'search_events', 'recommend_events', 'team_candidates', 'extract_cv', 'cv_proposal', 'confirm_cv', 'remove_cv'))
 MAX_BODY = 9 * 1024 * 1024
@@ -102,10 +103,24 @@ def person_cv(p):
 
 
 def event_dict(e):
-    return {'event_id': validate_id(e['id']), 'name': e['title'], 'event_type': e.get('kind', 'hackathon'),
-        'short_description': e.get('description', '')[:9000], 'skills': (e.get('audience') or {}).get('skills', e.get('tags', [])),
-        'location': e.get('location'), 'remote': e.get('format') in ('Online', 'Hybrid'),
+    audience, eligibility = e.get('audience') or {}, e.get('eligibility') or {}
+    result = {'event_id': validate_id(e['id']), 'name': e['title'], 'event_type': e.get('kind', 'hackathon'),
+        'short_description': e.get('description', '')[:9000], 'skills': audience.get('skills', e.get('tags', [])),
+        'criteria_version': 2, 'format': {'Online':'online','Hybrid':'hybrid','In person':'in_person'}.get(e.get('format')),
+        'location': e.get('location'), 'country':e.get('country'), 'languages':e.get('languages',[]),
+        'topics': e.get('topics',[]), 'price':e.get('price'), 'taught_skills':audience.get('taughtSkills',[]),
+        'goals':audience.get('goals',[]), 'roles':audience.get('roles',[]), 'levels':audience.get('levels',[]),
+        'date':e.get('date'), 'end_date':e.get('endDate'), 'deadline':e.get('deadline'), 'status':e.get('status'),
         'source_updated_at': e.get('updated_at')}
+    for source, target in [('requiredSkills','required_skills'),('seniorities','seniorities'),('statuses','statuses'),
+                           ('minAge','min_age'),('maxAge','max_age'),('minBirthYear','min_birth_year'),('maxBirthYear','max_birth_year')]:
+        result[target] = eligibility.get(source)
+    if e.get('matchingVersion') != 2 and not eligibility:
+        from contracts import normalize_event_constraints
+        legacy = normalize_event_constraints({k:v for k,v in e.items() if k != 'format'})
+        for field in ('min_birth_year','max_birth_year','seniorities','statuses','seniority'):
+            result[field] = legacy.get(field)
+    return result
 
 
 def current_event(e):
@@ -245,7 +260,7 @@ class MatchingService:
             for event in context['events']:
                 if event.get('status') == 'open':
                     ids.append(self.jobs.enqueue('event', event_dict(event)))
-            return {'results': [], 'queued_jobs': len(ids)}
+            return {'results': [], 'queued_jobs': len(ids), 'recipe': self.store.contract['recipe']}
         if operation.endswith('_cv') or operation == 'cv_proposal':
             return self._proposal(operation, actor, people[actor], input)
         query = input.get('query', '')
@@ -281,7 +296,8 @@ class MatchingService:
             for p in candidates:
                 self.store.upsert_candidate(person_cv(p), expected_source_hash=self.store.candidate_source_hash(p['id']))
             narrative = 'Seeking a teammate for ' + event['title'] + '. Missing skills: ' + ', '.join(missing or event_dict(event)['skills']) + '. ' + query
-            ids = {p['id'] for p in candidates}
+            from matching_eligibility import candidate_eligible
+            ids = {p['id'] for p in candidates if candidate_eligible(person_cv(p), event_dict(event))}
             if 'eligible_person_ids' in input:
                 ids &= set(input['eligible_person_ids'])
             hits = self.store.query_candidates(self.embeddings.embed_query(narrative), 1000)
@@ -300,20 +316,23 @@ class MatchingService:
                 and (not filters.get('city') or e.get('format') == 'Online' or filters['city'].casefold() in e.get('location', '').casefold())
                 and (not filters.get('from') or str(e.get('date', ''))[:10] >= filters['from'])
                 and (not filters.get('to') or str(e.get('date', ''))[:10] <= filters['to'])
-                and (not filters.get('topic') or filters['topic'].casefold() in ' '.join(e.get('tags', []) + [e.get('theme', ''), e.get('description', '')]).casefold())]
+                and (not filters.get('topic') or filters['topic'].casefold() in ' '.join(e.get('topics', e.get('tags', []))).casefold())]
             for e in events:
                 self.store.upsert_event(event_dict(e), expected_source_hash=self.store.event_source_hash(e['id']))
             narrative = query or candidate_narrative(person_cv(people[actor]))
             if skills:
                 narrative += ' Requested skills: ' + ', '.join(skills)
             hits = self.store.query_events(self.embeddings.embed_query(narrative), 1000)
-            ids, key = {e['id'] for e in events}, 'eventId'
+            from matching_eligibility import candidate_eligible
+            ids, key = {e['id'] for e in events if operation != 'recommend_events' or candidate_eligible(person_cv(people[actor]), event_dict(e))}, 'eventId'
             if 'eligible_event_ids' in input:
                 ids &= set(input['eligible_event_ids'])
         results = [{key: uid, 'similarity': round(max(0., min(1., float(score))), 4),
             'reasons': ['Semantic similarity from EmbeddingGemma' + ('; complementary skills: ' + ', '.join(missing) if operation == 'team_candidates' and missing else '')]}
-            for uid, score in hits if uid in ids and math.isfinite(float(score))][:limit]
-        return {'results': results, 'model': embedding_model_id(self.embeddings), 'source': 'semantic', 'warnings': warnings, 'interpreted_filters': interpreted_filters}
+            for uid, score in hits if uid in ids and math.isfinite(float(score))
+            and (operation != 'recommend_events' or suitable_similarity(score))][:limit]
+        return {'results': results, 'model': embedding_model_id(self.embeddings), 'source': 'semantic', 'warnings': warnings, 'interpreted_filters': interpreted_filters,
+            **({'outcome': 'matched' if results else 'no_suitable_event'} if operation == 'recommend_events' else {})}
 
 
 def handler_for(service, token):

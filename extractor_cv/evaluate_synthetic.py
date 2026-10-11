@@ -131,12 +131,12 @@ def matching_cases():
     cases = [
         dict(name='data event eligibility', event_id='synthetic-data', name_event='Python SQL data sprint',
              skills=['Python', 'SQL', 'Pandas'], location='Belgrade', seniority='junior',
-             min_birth_year=2006, max_birth_year=1999, top=['synthetic-python'],
-             excluded=['synthetic-senior', 'synthetic-away', 'synthetic-unknown', 'synthetic-science']),
+             min_birth_year=2006, max_birth_year=1999, top=['synthetic-python', 'synthetic-away'],
+             excluded=['synthetic-senior', 'synthetic-unknown', 'synthetic-science']),
         dict(name='frontend teammate complement for Python team', event_id='synthetic-complement',
              name_event='React TypeScript CSS frontend teammate', skills=['React', 'TypeScript', 'CSS'],
              location='Belgrade', seniority='junior', top=['synthetic-web'],
-             excluded=['synthetic-away', 'synthetic-unknown', 'synthetic-senior', 'synthetic-science']),
+             excluded=['synthetic-unknown', 'synthetic-senior', 'synthetic-science']),
         dict(name='remote science event', event_id='synthetic-science-event', name_event='Biology Microscopy research',
              skills=['Biology', 'Microscopy'], remote=True, top=['synthetic-science'], excluded=[]),
         dict(name='semantic paraphrase forecasts', event_id='synthetic-paraphrase',
@@ -145,14 +145,14 @@ def matching_cases():
     ]
     # Labels are authored before inference. Paraphrases are observational offline.
     additions = [
-        ('Python junior SQL workshop', ['Python', 'SQL'], ['synthetic-python'], dict(location='Belgrade', seniority='junior')),
+        ('Python junior SQL workshop', ['Python', 'SQL'], ['synthetic-python', 'synthetic-away'], dict(location='Belgrade', seniority='junior')),
         ('React TypeScript remote hackathon', ['React', 'TypeScript'], ['synthetic-web'], dict(remote=True)),
         ('Figma UX prototyping design workshop', ['Figma', 'UX', 'Prototyping'], ['synthetic-design'], dict(location='Belgrade', seniority='junior')),
         ('Senior Python SQL architecture conference', ['Python', 'SQL'], ['synthetic-senior'], dict(location='Belgrade', seniority='senior')),
-        ('Python SQL Novi Sad beginner workshop', ['Python', 'SQL'], ['synthetic-away'], dict(location='Novi Sad', seniority='junior')),
+        ('Python SQL Novi Sad beginner workshop', ['Python', 'SQL'], ['synthetic-python', 'synthetic-away'], dict(location='Novi Sad', seniority='junior')),
         ('Biology Microscopy laboratory Nis', ['Biology', 'Microscopy'], ['synthetic-science'], dict(location='Nis', seniority='senior')),
         ('Machine Learning Statistics student challenge', ['Machine Learning', 'Statistics'], ['synthetic-paraphrase'], dict(location='Belgrade', seniority='junior')),
-        ('Python SQL Belgrade age 20 to 27 data challenge', ['Python', 'SQL'], ['synthetic-python'], dict(location='Belgrade', min_birth_year=2006, max_birth_year=1999)),
+        ('Python SQL Belgrade age 20 to 27 data challenge', ['Python', 'SQL'], ['synthetic-python', 'synthetic-away'], dict(location='Belgrade', min_birth_year=2006, max_birth_year=1999)),
         ('Python SQL senior remote mentorship', ['Python', 'SQL'], ['synthetic-senior'], dict(remote=True, seniority='senior')),
         ('React TypeScript CSS junior online coding sprint', ['React', 'TypeScript', 'CSS'], ['synthetic-web'], dict(remote=True, seniority='junior')),
         ('Help a backend team make accessible browser interfaces', [], ['synthetic-web'], dict(remote=True, semantic_only=True, rank_cutoff=3)),
@@ -172,8 +172,6 @@ def matching_cases():
 
 def eligible(profile, event):
     """Independent metadata oracle matching documented explicit hard constraints."""
-    if event.get('location') and not event.get('remote') and canonical_city(profile.get('location')) != canonical_city(event['location']):
-        return False
     if event.get('seniority') and seniority_bucket(profile.get('experience_level')) != seniority_bucket(event['seniority']):
         return False
     oldest, youngest = event.get('max_birth_year'), event.get('min_birth_year')

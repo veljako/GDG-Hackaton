@@ -130,7 +130,8 @@ try {
         const input = route.request().postDataJSON();
         expect(input.expected_draft_version).toBe(draft.version);
         expect(input.profile.title).toBe("Corrected project role");
-        expect(input.profile.skills).toEqual(["TypeScript", "Python"]);
+        expect(input.profile.skills).toEqual([]);
+        expect(input.profile.learningSkills).toEqual(["Python", "Research"]);
         person = {
           ...person,
           ...input.profile,
@@ -190,9 +191,10 @@ try {
     await page
       .getByLabel("Headline or current role")
       .fill("Corrected project role");
-    await page
-      .getByLabel("Skills, separated by commas")
-      .fill("TypeScript, Python");
+    await page.getByLabel("Skills, separated by commas").fill("");
+    await page.locator('input[name="learningSkills"]').fill("Python");
+    await page.locator('input[name="country"]').fill("Serbia");
+    await page.locator('input[name="birth_date"]').fill("2000-06-15");
     await page
       .getByRole("button", { name: "Add education", exact: true })
       .click();
@@ -210,6 +212,10 @@ try {
     await expect(page.getByLabel("institution", { exact: true })).toHaveValue(
       "Example university",
     );
+    await expect(page.locator('input[name="country"]')).toHaveValue("Serbia");
+    await expect(page.locator('input[name="birth_date"]')).toHaveValue(
+      "2000-06-15",
+    );
     await page.getByRole("button", { name: "Save and continue" }).click();
     await expect(
       page.getByRole("heading", { name: "What brings you here?" }),
@@ -221,7 +227,10 @@ try {
     await page
       .getByLabel("Topics and interests, separated by commas")
       .fill("AI, Climate");
-    for (const name of ["Learning", "hackathon", "Online", "Participant"])
+    await page.locator('input[name="learningSkills"]').fill("Python, Research");
+    await page.locator('input[name="budgetCurrency"]').fill("USD");
+    await page.locator('input[name="maxPrice"]').fill("25");
+    for (const name of ["Learning", "workshop", "Online", "Participant"])
       await page.getByRole("button", { name, exact: true }).click();
     await page.evaluate(
       () => (document.documentElement.dataset.theme = "dark"),
@@ -259,6 +268,14 @@ try {
       page.getByRole("region", { name: "Profile matching status" }),
     ).toHaveCount(0);
     expect(completed).toBe(true);
+    expect(person.learningSkills).toEqual(["Python", "Research"]);
+    expect(person.country).toBe("Serbia");
+    expect(person.birth_date).toBe("2000-06-15");
+    expect(person.birth_year).toBe(2000);
+    expect(person.preferences.maxPrice).toEqual({
+      amount: 25,
+      currency: "USD",
+    });
     console.log(
       `PASS ${width}px: mandatory gate, extraction retry, editable structured review, saved resume, validation, interests, completion outage, dark theme, overflow`,
     );

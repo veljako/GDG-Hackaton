@@ -95,7 +95,7 @@ export function EventCard({ event }: { event: Hackathon }) {
                 ? "You're accepted"
                 : admission?.status === "pending"
                   ? "Applied"
-                  : event.format}
+                  : event.format ?? "Format to be confirmed"}
           </Badge>
           <IconButton
             label={saved ? `Unsave ${event.title}` : `Save ${event.title}`}

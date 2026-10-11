@@ -419,7 +419,7 @@ export default function Organizer() {
               </div>
               <div>
                 <dt>Format</dt>
-                <dd>{event.format}</dd>
+                <dd>{event.format ?? "Format to be confirmed"}</dd>
               </div>
               <div>
                 <dt>{hasTeams(event) ? "Team size" : "Registration"}</dt>
@@ -608,6 +608,17 @@ function EventEditor({
       m.role === "admin",
   );
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "hackathon");
+  const [formError, setFormError] = useState("");
+  const split = (value: FormDataEntryValue | null) => [
+    ...new Set(
+      String(value ?? "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean),
+    ),
+  ];
+  const numeric = (data: FormData, key: string) =>
+    String(data.get(key) ?? "").trim() === "" ? null : Number(data.get(key));
   return (
     <Modal
       wide
@@ -637,7 +648,58 @@ function EventEditor({
         id="event-form"
         className="form-stack"
         onSubmit={submitHandler(async (data) => {
+          const minAge = numeric(data, "minAge"),
+            maxAge = numeric(data, "maxAge"),
+            minBirthYear = numeric(data, "minBirthYear"),
+            maxBirthYear = numeric(data, "maxBirthYear");
+          if (
+            (minAge !== null && maxAge !== null && minAge > maxAge) ||
+            (minBirthYear !== null &&
+              maxBirthYear !== null &&
+              minBirthYear > maxBirthYear)
+          ) {
+            setFormError(
+              "Minimum age and birth year must not exceed their maximum.",
+            );
+            return;
+          }
+          if (
+            String(data.get("endDate")) < String(data.get("date")) ||
+            String(data.get("deadline")) > String(data.get("date"))
+          ) {
+            setFormError(
+              "End date must be on or after the start date, and the application deadline on or before it.",
+            );
+            return;
+          }
+          setFormError("");
           const details: Omit<Hackathon, "id"> = {
+            matchingVersion: 2,
+            topics: split(data.get("topics")),
+            country: String(data.get("country") ?? "").trim(),
+            languages: split(data.get("languages")),
+            price:
+              numeric(data, "priceAmount") === null
+                ? null
+                : {
+                    amount: Number(data.get("priceAmount")),
+                    currency: String(data.get("priceCurrency") || "EUR")
+                      .trim()
+                      .toUpperCase(),
+                  },
+            eligibility: {
+              requiredSkills: split(data.get("requiredSkills")),
+              seniorities: data.getAll("seniorities") as NonNullable<
+                Hackathon["eligibility"]
+              >["seniorities"],
+              statuses: data.getAll("statuses") as NonNullable<
+                Hackathon["eligibility"]
+              >["statuses"],
+              minAge,
+              maxAge,
+              minBirthYear,
+              maxBirthYear,
+            },
             kind,
             registration:
               kind === "hackathon"
@@ -648,6 +710,7 @@ function EventEditor({
                 .split(",")
                 .map((s) => s.trim())
                 .filter(Boolean),
+              taughtSkills: split(data.get("taughtSkills")),
               goals: data.getAll("audienceGoals") as Goal[],
               roles: data.getAll("audienceRoles") as Role[],
               levels: data.getAll("audienceLevels") as Level[],
@@ -893,7 +956,8 @@ function EventEditor({
         </div>
         <div className="form-columns three">
           <Field label="Format">
-            <select name="format" defaultValue={event?.format ?? "In person"}>
+            <select name="format" required defaultValue={event?.format ?? ""}>
+              <option value="">Choose a format</option>
               <option>In person</option>
               <option>Hybrid</option>
               <option>Online</option>
@@ -925,7 +989,56 @@ function EventEditor({
             </select>
           </Field>
         </div>
-        <Field label="Topics" hint="Separate topics with commas.">
+        {formError && (
+          <p className="field-error" role="alert">
+            {formError}
+          </p>
+        )}
+        <div className="form-grid">
+          <Field label="Country" hint="Optional.">
+            <input
+              name="country"
+              maxLength={100}
+              defaultValue={event?.country ?? ""}
+            />
+          </Field>
+          <Field label="Event languages" hint="Separate languages with commas.">
+            <input
+              name="languages"
+              maxLength={400}
+              defaultValue={(event?.languages ?? []).join(", ")}
+            />
+          </Field>
+          <Field
+            label="Ticket price"
+            hint="Optional. Blank means not specified; zero means free."
+          >
+            <input
+              name="priceAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={event?.price?.amount ?? ""}
+            />
+          </Field>
+          <Field label="Price currency">
+            <input
+              name="priceCurrency"
+              minLength={3}
+              maxLength={3}
+              pattern="[A-Za-z]{3}"
+              defaultValue={event?.price?.currency ?? "EUR"}
+            />
+          </Field>
+        </div>
+        <Field label="Event topics" hint="Separate topics with commas.">
+          <input
+            name="topics"
+            maxLength={600}
+            defaultValue={(event?.topics ?? event?.tags ?? []).join(", ")}
+          />
+        </Field>
+        <Field label="Display tags" hint="Separate tags with commas.">
           <input
             name="tags"
             defaultValue={event?.tags.join(", ")}
@@ -938,11 +1051,24 @@ function EventEditor({
             These help people discover your event. They do not restrict
             registration. Leave a criterion empty to welcome everyone.
           </p>
-          <Field label="Relevant skills" hint="Separate skills with commas.">
+          <Field
+            label="Skills practiced"
+            hint="Useful skills, not prerequisites. Separate skills with commas."
+          >
             <input
               name="audienceSkills"
               defaultValue={event?.audience?.skills.join(", ") ?? ""}
               placeholder="React, Data analysis, Research"
+            />
+          </Field>
+          <Field
+            label="Skills taught"
+            hint="What attendees will learn. Separate skills with commas."
+          >
+            <input
+              name="taughtSkills"
+              maxLength={600}
+              defaultValue={(event?.audience?.taughtSkills ?? []).join(", ")}
             />
           </Field>
           <h3 className="detail-label">Goals</h3>
@@ -975,7 +1101,10 @@ function EventEditor({
               ),
             )}
           </div>
-          <h3 className="detail-label">Experience levels</h3>
+          <h3 className="detail-label">Relevant experience levels</h3>
+          <p className="form-note">
+            Leave empty for all levels. This does not restrict admission.
+          </p>
           <div className="role-checkboxes">
             {levels.map((l) => (
               <label key={l}>
@@ -987,6 +1116,79 @@ function EventEditor({
                 />
                 <span>{l}</span>
               </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="discovery-preferences">
+          <legend>Eligibility requirements</legend>
+          <p className="form-note">
+            Only add explicit admission restrictions. Leave these empty to
+            welcome everyone. Missing required profile information prevents
+            eligibility confirmation.
+          </p>
+          <Field
+            label="Prerequisite skills"
+            hint="Skills attendees must already have. Separate skills with commas."
+          >
+            <input
+              name="requiredSkills"
+              maxLength={600}
+              defaultValue={(event?.eligibility?.requiredSkills ?? []).join(
+                ", ",
+              )}
+            />
+          </Field>
+          <h3 className="detail-label">Required professional seniority</h3>
+          <div className="role-checkboxes">
+            {(["Junior", "Mid", "Senior"] as const).map((value) => (
+              <label key={value}>
+                <input
+                  type="checkbox"
+                  name="seniorities"
+                  value={value}
+                  defaultChecked={event?.eligibility?.seniorities?.includes(
+                    value,
+                  )}
+                />
+                <span>{value}</span>
+              </label>
+            ))}
+          </div>
+          <h3 className="detail-label">Required current status</h3>
+          <div className="role-checkboxes">
+            {(["Student", "Employed", "Freelancer"] as const).map((value) => (
+              <label key={value}>
+                <input
+                  type="checkbox"
+                  name="statuses"
+                  value={value}
+                  defaultChecked={event?.eligibility?.statuses?.includes(value)}
+                />
+                <span>{value}</span>
+              </label>
+            ))}
+          </div>
+          <div className="form-grid">
+            {(
+              [
+                ["minAge", "Minimum age"],
+                ["maxAge", "Maximum age"],
+                ["minBirthYear", "Earliest birth year"],
+                ["maxBirthYear", "Latest birth year"],
+              ] as const
+            ).map(([name, label]) => (
+              <Field key={name} label={label} hint="Optional.">
+                <input
+                  name={name}
+                  type="number"
+                  min={name.includes("BirthYear") ? 1900 : 0}
+                  max={
+                    name.includes("BirthYear") ? new Date().getFullYear() : 130
+                  }
+                  step="1"
+                  defaultValue={event?.eligibility?.[name] ?? ""}
+                />
+              </Field>
             ))}
           </div>
         </fieldset>

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useDemo } from "../store";
 import { admissionFor, isConnected, isPastTeam } from "../domain";
 import { hasTeams } from "../discovery";
+import { eventEligibility } from "../matching-data";
 import type { Hackathon, Person, Role, Team } from "../types";
 import {
   Modal,
@@ -34,6 +35,8 @@ export function ApplyModal({
   const { state, me, run } = useDemo();
   const navigate = useNavigate();
   const [choice, setChoice] = useState("solo");
+  const [applicationRole, setApplicationRole] = useState<Role>("Participant");
+  const eligibility = eventEligibility(event, me, applicationRole);
   const teams = state.teams.filter(
     (t) => t.eventId === event.id && t.memberIds.includes(me.id),
   );
@@ -54,7 +57,11 @@ export function ApplyModal({
           <Button variant="text" onClick={onClose}>
             Cancel
           </Button>
-          <Button form="apply-form" icon={<PaperPlaneTilt size={18} />}>
+          <Button
+            form="apply-form"
+            disabled={!eligibility.eligible}
+            icon={<PaperPlaneTilt size={18} />}
+          >
             {!hasTeams(event) && event.registration === "automatic"
               ? "Confirm registration"
               : "Send application"}
@@ -117,7 +124,11 @@ export function ApplyModal({
           <Badge color="blue">Your profile</Badge>
         </div>
         <Field label="I'd like to join as">
-          <select name="role" defaultValue="Participant">
+          <select
+            name="role"
+            value={applicationRole}
+            onChange={(e) => setApplicationRole(e.target.value as Role)}
+          >
             {(["Participant", "Mentor", "Speaker", "Judge"] as Role[]).map(
               (r) => (
                 <option key={r}>{r}</option>
@@ -125,6 +136,29 @@ export function ApplyModal({
             )}
           </select>
         </Field>
+        {!eligibility.eligible && (
+          <div className="field-error" role="status">
+            <p>
+              {eligibility.unknown
+                ? "Add the missing profile details to confirm eligibility."
+                : "Your profile does not meet the eligibility requirements."}
+            </p>
+            <ul>
+              {eligibility.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+            <Button
+              variant="text"
+              onClick={() => {
+                onClose();
+                navigate("/profile");
+              }}
+            >
+              Review your profile
+            </Button>
+          </div>
+        )}
         {hasTeams(event) && (
           <Field label="How are you joining?">
             <select value={choice} onChange={(e) => setChoice(e.target.value)}>

@@ -186,6 +186,9 @@ try {
     await editor
       .getByLabel("Registration", { exact: true })
       .selectOption("automatic");
+    await editor
+      .getByLabel("Format", { exact: true })
+      .selectOption("In person");
     await editor.getByLabel("Event name").fill("New Research Web Meetup");
     await editor
       .getByLabel("Theme", { exact: true })
@@ -198,8 +201,8 @@ try {
     await editor
       .getByLabel("Venue", { exact: true })
       .fill("Fictional university lab");
-    await editor.getByLabel("Topics", { exact: true }).fill("Web apps");
-    await editor.getByLabel("Relevant skills", { exact: true }).fill("React");
+    await editor.getByLabel("Event topics", { exact: true }).fill("Web apps");
+    await editor.getByLabel("Skills practiced", { exact: true }).fill("React");
     await editor.getByLabel("Learning", { exact: true }).check();
     const createdResponse = org.page.waitForResponse(
       (r) =>
@@ -211,6 +214,7 @@ try {
     const created = await (await createdResponse).json();
     expect(created.error).toBeUndefined();
     await a.page.goto(base + "/#/events?view=for-you");
+    await a.page.reload();
     await expect(
       a.page.getByRole("heading", { name: "New Research Web Meetup" }),
     ).toBeVisible();

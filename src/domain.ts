@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { createSeedState } from "./seed";
 import { hasTeams } from './discovery';
+import { eventEligibility, matchingEventError, matchingProfileError, normalizeEvent } from "./matching-data";
 
 export function admissionFor(
   state: DemoState,
@@ -142,7 +143,9 @@ function validateEvent(event: Omit<Hackathon, "id">): string | undefined {
     return "Use valid calendar dates in YYYY-MM-DD format.";
   if (!["open", "past", "draft"].includes(event.status))
     return "Choose a valid event status.";
-  return undefined;
+  if (event.status !== "draft" && !["In person", "Hybrid", "Online"].includes(event.format ?? ""))
+    return "Choose an attendance format before publishing this event.";
+  return matchingEventError(event);
 }
 function ensureAdmission(
   state: DemoState,
@@ -237,7 +240,7 @@ export function transition(state: DemoState, action: Action): Transition {
         ...structuredClone(action.event),
         id: nextId(next, "event"),
       };
-      next.events.push(event);
+      next.events.push(normalizeEvent(event));
       return success("Event created.", event.id);
     }
     case "UPDATE_EVENT": {
@@ -271,7 +274,7 @@ export function transition(state: DemoState, action: Action): Transition {
         return fail(
           "Team size cannot be lower than existing members and reserved places.",
         );
-      Object.assign(event, edited);
+      Object.assign(event, normalizeEvent(edited));
       return success("Event details updated.");
     }
     case "SUBMIT_APPLICATION": {
@@ -290,6 +293,8 @@ export function transition(state: DemoState, action: Action): Transition {
         return fail(
           "You already have an application for this event. Check its status.",
         );
+      const eligibility = eventEligibility(event, person(action.personId)!, action.role);
+      if (!eligibility.eligible) return fail(eligibility.reasons.join(" "));
       if (eventPlaces(next, event.id) >= event.capacity)
         return fail(
           "This event is full, including pending applications. Try another event.",
@@ -355,6 +360,10 @@ export function transition(state: DemoState, action: Action): Transition {
       if (!event) return fail("Application event not found.");
       if (!["accepted", "rejected"].includes(action.status))
         return fail("Choose accept or reject.");
+      if (action.status === "accepted" && app.status !== "accepted") {
+        const eligibility = eventEligibility(event, person(app.personId)!, app.role);
+        if (!eligibility.eligible) return fail(eligibility.reasons.join(" "));
+      }
       if (
         app.status === "rejected" &&
         action.status === "accepted" &&
@@ -389,6 +398,8 @@ export function transition(state: DemoState, action: Action): Transition {
         return fail("Choose a valid application role.");
       if (event.status !== "open")
         return fail("Choose an open event for your new team.");
+      const eligibility = eventEligibility(event, person(action.personId)!, action.role);
+      if (!eligibility.eligible) return fail(eligibility.reasons.join(" "));
       if (otherTeam(next, event.id, action.personId))
         return fail(
           "You already belong to a team for this event. Leave it before creating another.",
@@ -550,6 +561,10 @@ export function transition(state: DemoState, action: Action): Transition {
         return fail(
           "This team’s event is closed. Ask for an invitation to an open event.",
         );
+      if (admissionFor(next, event.id, i.personId)?.status !== "accepted") {
+        const eligibility = eventEligibility(event, person(i.personId)!);
+        if (!eligibility.eligible) return fail(eligibility.reasons.join(" "));
+      }
       if (otherTeam(next, event.id, i.personId, t.id))
         return fail(
           "You already belong to another team for this event. Leave it before accepting.",
@@ -655,6 +670,8 @@ export function transition(state: DemoState, action: Action): Transition {
       if (action.changes.id && action.changes.id !== p.id)
         return fail("Profile identity cannot be changed.");
       const edited = { ...p, ...structuredClone(action.changes), id: p.id };
+      const profileError = matchingProfileError(edited);
+      if (profileError) return fail(profileError);
       if (typeof edited.name !== "string" || !edited.name.trim())
         return fail("Add a name to your profile.");
       if (

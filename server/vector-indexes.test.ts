@@ -1,12 +1,13 @@
 import { expect, it } from "vitest";
 import { vectorIndexConfig } from "./vector-indexes";
 
-it("creates compatible model/dimension vector indexes for both entity kinds", () => {
+it("creates compatible model/dimension indexes including all event kinds", () => {
   const config = vectorIndexConfig(768);
-  expect(config.indexes).toHaveLength(2);
+  expect(config.indexes).toHaveLength(3);
   expect(config.indexes.map((i) => i.collectionGroup)).toEqual([
     "userEmbeddings",
     "hackathonEmbeddings",
+    "eventEmbeddings",
   ]);
   expect(config.indexes[0].fields).toEqual([
     { fieldPath: "model", order: "ASCENDING" },
@@ -34,8 +35,8 @@ it("requires an explicit supported dimension and preserves existing indexes", ()
     ],
   };
   const first = vectorIndexConfig(768, existing);
-  expect(first.indexes).toHaveLength(3);
+  expect(first.indexes).toHaveLength(4);
   expect(first.fieldOverrides).toEqual(existing.fieldOverrides);
   expect(vectorIndexConfig(768, first)).toEqual(first);
-  expect(vectorIndexConfig(1024, first).indexes).toHaveLength(5);
+  expect(vectorIndexConfig(1024, first).indexes).toHaveLength(7);
 });

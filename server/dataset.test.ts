@@ -44,3 +44,16 @@ it("refuses to import into a workspace with a real profile", async () => {
   };
   await expect(importDataset(repo, seed)).rejects.toThrow(/empty/i);
 });
+
+it("rejects inconsistent private birth dates and published events without an attendance format", () => {
+  const profile = createSeedState();
+  profile.people[0].birth_date = "2000-01-01";
+  profile.people[0].birth_year = 2001;
+  expect(() => validateDataset(profile)).toThrow(/birth date and birth year/i);
+  const events = createSeedState();
+  events.events[0].format = null;
+  events.events[0].status = "open";
+  expect(() => validateDataset(events)).toThrow(/format/i);
+  events.events[0].status = "draft";
+  expect(validateDataset(events).events[0].format).toBeNull();
+});

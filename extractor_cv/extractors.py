@@ -40,6 +40,13 @@ class CvDict(TypedDict):
     current_role: Optional[str]
     education: List[EducationDict]
     skills: List[str]
+    learning_skills: List[str]
+    country: Optional[str]
+    birth_date: Optional[str]
+    interests: List[str]
+    roles: List[str]
+    preferences: Dict[str, Any]
+    bio: Optional[str]
     general_description: Optional[str]
     location: Optional[str]
     status: Optional[str]
@@ -50,6 +57,25 @@ class CvDict(TypedDict):
 
 
 class EventDict(TypedDict, total=False):
+    date: Optional[str]
+    end_date: Optional[str]
+    deadline: Optional[str]
+    criteria_version: int
+    format: Optional[str]
+    description: Optional[str]
+    topics: List[str]
+    taught_skills: List[str]
+    required_skills: List[str]
+    goals: List[str]
+    roles: List[str]
+    levels: List[str]
+    seniorities: List[str]
+    statuses: List[str]
+    country: Optional[str]
+    languages: List[str]
+    price: Optional[Dict[str, Any]]
+    min_age: Optional[int]
+    max_age: Optional[int]
     event_id: str
     name: Optional[str]
     short_description: Optional[str]
@@ -58,7 +84,7 @@ class EventDict(TypedDict, total=False):
     location: Optional[str]
     remote: bool
     seniority: Optional[str]
-    # max_birth_year is the smaller year (oldest participant); see event_candidate_finder.py.
+    # Version 2 bounds use conventional ascending order.
     min_birth_year: Optional[int]
     max_birth_year: Optional[int]
 
@@ -182,6 +208,20 @@ def normalize_cv_dict(raw: Dict[str, Any], candidate_id: str, source: str) -> Cv
         raise ValueError("CV record must be a successful JSON object.")
     if isinstance(raw.get('cv_text'), str) and raw['cv_text'].strip():
         raw = ground_cv(raw, raw['cv_text'], enforce_seniority=False)
+    birth_date = raw.get("birth_date")
+    year = _clean_birth_year(raw.get("birth_year"))
+    if birth_date is not None:
+        if not isinstance(birth_date, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", birth_date):
+            raise ValueError("Birth date must be a valid ISO date.")
+        try:
+            parsed_birth = date.fromisoformat(birth_date)
+        except ValueError:
+            raise ValueError("Birth date must be a valid ISO date.") from None
+        if parsed_birth > date.today() or parsed_birth.year < 1900:
+            raise ValueError("Birth date is outside the supported range.")
+        if year is not None and year != parsed_birth.year:
+            raise ValueError("Birth date and birth year disagree.")
+        year = parsed_birth.year
     return CvDict(
         candidate_id=candidate_id,
         source=source,
@@ -190,10 +230,17 @@ def normalize_cv_dict(raw: Dict[str, Any], candidate_id: str, source: str) -> Cv
         current_role=_clean_str(raw.get("current_role")),
         education=_clean_education(raw.get("education")),
         skills=_clean_skills(raw.get("skills")),
-        general_description=_clean_str(raw.get("general_description"), 10_000),
+        learning_skills=_clean_skills(raw.get("learning_skills", raw.get("learningSkills"))),
+        country=_clean_str(raw.get("country")),
+        birth_date=birth_date,
+        interests=_clean_skills(raw.get("interests")),
+        roles=_clean_skills(raw.get("roles")),
+        preferences=dict(raw["preferences"]) if isinstance(raw.get("preferences"), dict) else {},
+        bio=_clean_str(raw.get("bio"), 10_000),
+        general_description=_clean_str(raw.get("general_description") or raw.get("bio"), 10_000),
         location=_clean_str(raw.get("location")),
         status=_clean_str(raw.get("status")),
-        birth_year=_clean_birth_year(raw.get("birth_year")),
+        birth_year=year,
         experience_level=_clean_str(raw.get("experience_level")),
         cv_filename=_clean_str(raw.get("cv_filename")),
         cv_text=_clean_cv_text(raw.get("cv_text")),
@@ -326,14 +373,4 @@ def extract_event_info(raw_text: str, api_url: str = API_URL) -> EventDict:
     requested birth-year limits, including one-sided limits.
     """
     criteria = event_to_json(raw_text, api_url)
-    return EventDict(
-        name=_clean_str(criteria.get("name")),
-        short_description=_clean_str(criteria.get("short_description")),
-        event_type=_clean_str(criteria.get("event_type")),
-        skills=_clean_skills(criteria.get("skills")),
-        location=_clean_str(criteria.get("location")),
-        remote=criteria.get("remote") is True,
-        seniority=_clean_str(criteria.get("seniority")),
-        min_birth_year=_clean_birth_year(criteria.get("min_birth_year")),
-        max_birth_year=_clean_birth_year(criteria.get("max_birth_year")),
-    )
+    return EventDict(**criteria)

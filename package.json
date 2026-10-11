@@ -16,7 +16,8 @@
     "firebase:import": "tsx server/import-firebase.ts",
     "firebase:check": "tsx server/check-firebase.ts",
     "firebase:export-training": "tsx server/export-training.ts",
-    "firebase:vectors": "tsx server/manage-embeddings.ts"
+    "firebase:vectors": "tsx server/manage-embeddings.ts",
+    "firebase:migrate-matching": "tsx server/migrate-matching.ts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.0",

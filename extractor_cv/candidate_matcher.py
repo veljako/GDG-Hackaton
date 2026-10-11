@@ -6,6 +6,7 @@ Embeddings must be selected explicitly and declare stable model/dimension data.
 """
 
 import sys
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -208,6 +209,16 @@ class NarrativeBuilder:
         return candidate_narrative(_candidate(cv))
 
 
+def _public_match_metadata(metadata):
+    metadata = dict(metadata)
+    metadata.pop('birth_date', None)
+    if isinstance(metadata.get('payload'), str):
+        payload = json.loads(metadata['payload'])
+        payload.pop('birth_date', None)
+        metadata['payload'] = json.dumps(payload, ensure_ascii=False)
+    return metadata
+
+
 class CandidateVectorStore:
     def __init__(self, embeddings: Embeddings, collection_name: str = DEFAULT_COLLECTION,
                  persist_directory: Optional[str] = None) -> None:
@@ -217,7 +228,7 @@ class CandidateVectorStore:
     @staticmethod
     def _metadata(cv: CandidateProfile) -> Dict[str, Any]:
         payload, source_hash = MatchmakingStore._prepare(_candidate(cv))
-        return MatchmakingStore.candidate_metadata(payload, source_hash)
+        return _public_match_metadata(MatchmakingStore.candidate_metadata(payload, source_hash))
 
     def add_candidates(self, cvs: Sequence[CandidateProfile], *, expected_source_hashes: Optional[Dict[str, str]] = None) -> List[str]:
         return self.store.upsert_candidates([_candidate(cv) for cv in cvs], expected_source_hashes=expected_source_hashes)
@@ -230,13 +241,13 @@ class CandidateVectorStore:
             for identity, similarity in ranked:
                 payload = self.store.get_candidate(identity)
                 if payload is not None:
-                    metadata = MatchmakingStore.candidate_metadata(payload, self.store.candidate_source_hash(identity))
+                    metadata = _public_match_metadata(MatchmakingStore.candidate_metadata(payload, self.store.candidate_source_hash(identity)))
                     matches.append(CandidateMatch(identity, similarity, metadata, candidate_narrative(payload)))
             return matches
         # Only fetch the bounded top-k results, never materialize the population.
         saved = self.store.candidates.get(ids=[identity for identity, _ in ranked], include=["metadatas", "documents"])
         payloads = {identity: (metadata, narrative) for identity, metadata, narrative in zip(saved["ids"], saved["metadatas"], saved["documents"])}
-        return [CandidateMatch(identity, similarity, dict(payloads[identity][0]), payloads[identity][1])
+        return [CandidateMatch(identity, similarity, _public_match_metadata(payloads[identity][0]), payloads[identity][1])
                 for identity, similarity in ranked if identity in payloads]
 
     def search_by_vector(self, query_vector: List[float], k: int,

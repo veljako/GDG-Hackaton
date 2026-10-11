@@ -10,7 +10,13 @@ import {
 } from "@phosphor-icons/react";
 import { useDemo } from "../store";
 import { teamStatus, isPastTeam } from "../domain";
-import { Button, Avatar, SectionTitle, TextLink } from "../components/ui";
+import {
+  Button,
+  Avatar,
+  SectionTitle,
+  TextLink,
+  Empty,
+} from "../components/ui";
 import { TeamStatusBadge } from "../components/visuals";
 import { EventCard } from "../components/events";
 import { BrandGeometry } from "../components/playful";
@@ -48,12 +54,7 @@ export default function Home() {
     );
     return event ? [event] : [];
   });
-  const upcoming = [
-    ...recommended,
-    ...state.events.filter(
-      (e) => e.status === "open" && !recommended.some((r) => r.id === e.id),
-    ),
-  ].slice(0, 2);
+  const upcoming = recommended.slice(0, 2);
   const applications = state.applications.filter((a) => a.personId === me.id);
   const invites = state.invitations.filter(
     (i) => i.personId === me.id && i.status === "pending",
@@ -108,7 +109,7 @@ export default function Home() {
       <div className="home-workspace">
         <section className="home-picks">
           <SectionTitle
-            title={recommended.length ? "Picked for you" : "Coming up"}
+            title="Picked for you"
             action={
               <TextLink onClick={() => navigate("/events?view=for-you")}>
                 View events
@@ -119,6 +120,17 @@ export default function Home() {
             {upcoming.map((e) => (
               <EventCard event={e} key={e.id} />
             ))}
+            {!upcoming.length && (
+              <Empty
+                title="No suitable event right now"
+                description="Explore all events or update your interests and learning goals."
+                action={
+                  <Button variant="tonal" onClick={() => navigate("/events")}>
+                    Explore all events
+                  </Button>
+                }
+              />
+            )}
           </div>
         </section>
         <section className="home-team">

@@ -1,5 +1,6 @@
 import type { DemoState } from "../src/types";
 import { requiresOnboarding } from "../src/onboarding";
+import type { RecommendationOutcome } from "../src/recommendation-policy";
 export type MatchingOperation =
   | "queue_sync"
   | "search_events"
@@ -16,6 +17,8 @@ export type MatchingResult = {
   reasons: string[];
 };
 export type MatchingResponse = {
+  outcome?: RecommendationOutcome;
+  recipe?: string;
   results: MatchingResult[];
   proposal?: Record<string, unknown>;
   extraction_hash?: string;

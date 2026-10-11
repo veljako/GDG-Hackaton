@@ -159,6 +159,14 @@ it("supports hackathon vectors separately and refuses non-hackathon events", asy
   expect(records.has("gdevPilots/main/hackathonEmbeddings/hack")).toBe(true);
   await expect(repo.source("hackathon", "talk")).rejects.toThrow(/hackathon/i);
 });
+it("supports vectors for workshops and other event kinds without changing legacy hackathon access", async () => {
+  const {db,records}=database();
+  records.set("gdevPilots/main/events/workshop",{id:"workshop",kind:"workshop",topics:["AI"]});
+  const repo=new FirestoreEmbeddings(db);
+  const {source_hash}=await repo.source("event", "workshop");
+  await repo.upsert("event",{entity_id:"workshop",model:"m",source_hash,vector:[1]});
+  expect(records.has("gdevPilots/main/eventEmbeddings/workshop")).toBe(true);
+});
 it("searches only compatible vectors and omits stale or deleted source records", async () => {
   const { db, records, options } = database();
   const repo = new FirestoreEmbeddings(db);

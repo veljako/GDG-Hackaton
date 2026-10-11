@@ -190,6 +190,16 @@ function ProfileContent() {
                 </p>
               )}
             </div>
+            {!!me.learningSkills?.length && (
+              <>
+                <h3 className="detail-label">What I want to learn</h3>
+                <div className="skill-list">
+                  {me.learningSkills.map((skill) => (
+                    <span key={skill}>{skill}</span>
+                  ))}
+                </div>
+              </>
+            )}
             <h3 className="detail-label">My experience</h3>
             <p className="profile-experience">
               {me.experience ||
@@ -423,6 +433,8 @@ function ProfileContent() {
 function ProfileEdit({ onClose }: { onClose: () => void }) {
   const { me, run } = useDemo();
   const [chosenRoles, setChosenRoles] = useState<Role[]>(me.roles);
+  const [birthDate, setBirthDate] = useState(me.birth_date ?? "");
+  const [birthYear, setBirthYear] = useState(String(me.birth_year ?? ""));
   return (
     <Modal
       title="Make your profile yours"
@@ -455,12 +467,17 @@ function ProfileEdit({ onClose }: { onClose: () => void }) {
                 ? { last_name: String(data.get("last_name")).trim() }
                 : {}),
               phone: String(data.get("phone") ?? "").trim(),
+              country: String(data.get("country") ?? "").trim(),
+              birth_date: String(data.get("birth_date") ?? "") || null,
+              learningSkills: list(String(data.get("learningSkills") ?? "")),
               languages: list(String(data.get("languages") ?? "")),
               status: (String(data.get("status") || "") ||
                 null) as Person["status"],
-              birth_year: data.get("birth_year")
-                ? Number(data.get("birth_year"))
-                : null,
+              birth_year: data.get("birth_date")
+                ? Number(String(data.get("birth_date")).slice(0, 4))
+                : data.get("birth_year")
+                  ? Number(data.get("birth_year"))
+                  : null,
               experience_level: (String(data.get("experience_level") || "") ||
                 null) as Person["experience_level"],
               title: String(data.get("title")).trim(),
@@ -482,6 +499,15 @@ function ProfileEdit({ onClose }: { onClose: () => void }) {
                 ...(data.get("level")
                   ? { level: data.get("level") as Level }
                   : {}),
+                maxPrice:
+                  data.get("maxPrice") === ""
+                    ? null
+                    : {
+                        amount: Number(data.get("maxPrice")),
+                        currency: String(data.get("budgetCurrency") || "EUR")
+                          .trim()
+                          .toUpperCase(),
+                      },
                 notify: data.get("notify") === "on",
               },
             },
@@ -523,13 +549,42 @@ function ProfileEdit({ onClose }: { onClose: () => void }) {
               defaultValue={me.phone ?? ""}
             />
           </Field>
+          <Field label="Country" hint="Optional; helps match event locations.">
+            <input
+              name="country"
+              maxLength={100}
+              defaultValue={me.country ?? ""}
+              autoComplete="country-name"
+            />
+          </Field>
+          <Field
+            label="Exact birth date"
+            hint="Optional and private. Resolves age requirements around your birthday."
+          >
+            <input
+              name="birth_date"
+              type="date"
+              min="1900-01-01"
+              max={new Date().toISOString().slice(0, 10)}
+              value={birthDate}
+              onChange={(e) => {
+                setBirthDate(e.target.value);
+                if (e.target.value) setBirthYear(e.target.value.slice(0, 4));
+              }}
+            />
+          </Field>
           <Field label="Birth year">
             <input
               name="birth_year"
               type="number"
               min={1900}
               max={new Date().getFullYear()}
-              defaultValue={me.birth_year ?? ""}
+              value={birthYear}
+              onChange={(e) => {
+                setBirthYear(e.target.value);
+                if (birthDate && birthDate.slice(0, 4) !== e.target.value)
+                  setBirthDate("");
+              }}
             />
           </Field>
           <Field label="Current status">
@@ -600,6 +655,16 @@ function ProfileEdit({ onClose }: { onClose: () => void }) {
             defaultValue={me.experience}
           />
         </Field>
+        <Field
+          label="Skills you want to learn"
+          hint="Optional. Separate skills with commas."
+        >
+          <input
+            name="learningSkills"
+            maxLength={400}
+            defaultValue={(me.learningSkills ?? []).join(", ")}
+          />
+        </Field>
         <Field label="Interests" hint="Separate topics with commas.">
           <input
             name="interests"
@@ -613,6 +678,29 @@ function ProfileEdit({ onClose }: { onClose: () => void }) {
             Choose what you want to get out of events. These preferences are
             private.
           </p>
+          <div className="form-grid">
+            <Field
+              label="Maximum event budget"
+              hint="Optional. Leave blank for no budget preference; zero means free events."
+            >
+              <input
+                name="maxPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={me.preferences?.maxPrice?.amount ?? ""}
+              />
+            </Field>
+            <Field label="Budget currency">
+              <input
+                name="budgetCurrency"
+                minLength={3}
+                maxLength={3}
+                pattern="[A-Za-z]{3}"
+                defaultValue={me.preferences?.maxPrice?.currency ?? "EUR"}
+              />
+            </Field>
+          </div>
           <h3 className="detail-label">Goals</h3>
           <div className="role-checkboxes">
             {goals.map((goal) => (

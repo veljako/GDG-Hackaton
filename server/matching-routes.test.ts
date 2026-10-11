@@ -21,6 +21,98 @@ function fixture() {
   return { state, session, repository };
 }
 describe("authoritative matching routes", () => {
+  it("enforces recommendation relevance independently of worker responses and reports a genuine empty outcome", async () => {
+    const f = fixture();
+    await f.repository.update((state) => {
+      state.applications = [];
+      state.events = [state.events[0], state.events[1]].map((e, i) => ({
+        ...e,
+        id: i ? "weak" : "strong",
+        status: "open",
+        date: "2099-01-01",
+        endDate: "2099-01-01",
+        deadline: "2099-01-01",
+        capacity: 10000,
+        eligibility: {},
+      }));
+      return { state };
+    });
+    const call = vi.fn().mockResolvedValue({
+      results: [
+        { eventId: "weak", similarity: 0.3036, reasons: [] },
+        { eventId: "strong", similarity: 0.628, reasons: [] },
+      ],
+      interpreted_filters: {},
+    });
+    const routes = matchingRoutes(f.repository, { call });
+    expect(await routes.handle("recommendations", f.session, {})).toMatchObject(
+      {
+        source: "semantic",
+        outcome: "matched",
+        results: [{ eventId: "strong" }],
+      },
+    );
+    call.mockResolvedValue({
+      results: [{ eventId: "weak", similarity: 0.3036, reasons: [] }],
+      interpreted_filters: {},
+    });
+    expect(await routes.handle("recommendations", f.session, {})).toMatchObject(
+      { source: "semantic", outcome: "no_suitable_event", results: [] },
+    );
+    expect(await routes.handle("search", f.session, {})).toMatchObject({
+      results: [{ eventId: "weak" }],
+    });
+    call.mockResolvedValue({
+      results: [{ eventId: "strong", similarity: 0.45, reasons: [] }],
+      interpreted_filters: {},
+    });
+    expect(await routes.handle("recommendations", f.session, {})).toMatchObject(
+      { outcome: "matched", results: [{ eventId: "strong" }] },
+    );
+    for (const similarity of [0.4499, NaN, Infinity, 1.01, undefined]) {
+      call.mockResolvedValue({
+        results: [{ eventId: "strong", similarity, reasons: [] }],
+        interpreted_filters: {},
+      });
+      expect(
+        await routes.handle("recommendations", f.session, {}),
+      ).toMatchObject({ outcome: "no_suitable_event", results: [] });
+    }
+    call.mockImplementation(async () => {
+      await f.repository.update((state) => {
+        state.events[0].status = "draft";
+        return { state };
+      });
+      return {
+        results: [{ eventId: "strong", similarity: 0.9, reasons: [] }],
+        interpreted_filters: {},
+        outcome: "matched",
+      };
+    });
+    expect(await routes.handle("recommendations", f.session, {})).toMatchObject(
+      { outcome: "no_suitable_event", results: [] },
+    );
+  });
+
+  it("returns an explicit empty structured fallback without mistaking a worker outage for semantic success", async () => {
+    const f = fixture();
+    await f.repository.update((state) => {
+      state.events = [];
+      return { state };
+    });
+    expect(
+      await matchingRoutes(f.repository).handle(
+        "recommendations",
+        f.session,
+        {},
+      ),
+    ).toMatchObject({
+      source: "structured",
+      outcome: "no_suitable_event",
+      results: [],
+      warnings: [expect.any(String)],
+    });
+  });
   it("revalidates inferred city and date constraints against changes during inference despite empty UI filters", async () => {
     const f = fixture();
     const eventId = f.state.events[0].id;
@@ -70,12 +162,10 @@ describe("authoritative matching routes", () => {
       });
       return { state };
     });
-    const call = vi
-      .fn()
-      .mockResolvedValue({
-        results: [{ eventId, reasons: [] }],
-        interpreted_filters: { city: "Belgrade" },
-      });
+    const call = vi.fn().mockResolvedValue({
+      results: [{ eventId, reasons: [] }],
+      interpreted_filters: { city: "Belgrade" },
+    });
     expect(
       await matchingRoutes(f.repository, { call }).handle("search", f.session, {
         query: "Belgrade events",

@@ -21,6 +21,7 @@ class Embeddings:
         return [1., 0.]
 
 class Store:
+    contract = {'recipe': 'matching-narrative-v3'}
     candidates = 'candidates'
     def __init__(self):
         self.events, self.people, self.row = {}, {}, {}
@@ -35,6 +36,21 @@ class Store:
     def delete_candidate(self, uid, *, expected_source_hash): self.deleted.append((uid, expected_source_hash))
 
 class WorkerTests(unittest.TestCase):
+    def test_recommendations_reject_weak_and_invalid_scores_without_filling_results(self):
+        self.context['events'] = [self.event(uid) for uid in ['strong', 'boundary', 'weak', 'bad', 'too-high']]
+        self.store.query_events = lambda vector, k: [('weak', .3036), ('bad', float('nan')), ('too-high', 1.01), ('strong', .628), ('boundary', .45)]
+        result = self.call('recommend_events', {'limit': 5})
+        self.assertEqual([r['eventId'] for r in result['results']], ['strong', 'boundary'])
+        self.assertEqual(result['outcome'], 'matched')
+        self.store.query_events = lambda vector, k: [('weak', .3036)]
+        result = self.call('recommend_events')
+        self.assertEqual(result['results'], [])
+        self.assertEqual(result['outcome'], 'no_suitable_event')
+
+    def test_relevance_floor_does_not_hide_browse_results(self):
+        self.context['events'] = [self.event('weak')]
+        self.store.query_events = lambda vector, k: [('weak', .26)]
+        self.assertEqual([r['eventId'] for r in self.call('search_events')['results']], ['weak'])
     def setUp(self):
         self.p = {'id': 'actor', 'updated_at': 'v1', 'title': 'Engineer', 'skills': ['Python'], 'bio': 'Builds systems', 'cv_document': {'storage_path': 'private-cvs/actor/v1.pdf'}}
         self.context = {'people': [self.p], 'events': [], 'teams': [], 'applications': []}

@@ -4,6 +4,9 @@ import type { Person } from "./types";
 export function normalizePerson(person: Person): Person {
   return {
     ...person,
+    learningSkills: person.learningSkills ?? [],
+    country: person.country ?? "",
+    birth_date: person.birth_date ?? null,
     first_name: person.first_name ?? "",
     last_name: person.last_name ?? "",
     email: person.email ?? null,

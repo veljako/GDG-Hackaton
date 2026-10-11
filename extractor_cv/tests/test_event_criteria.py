@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import event_candidate_finder as events
+from contracts import normalize_event_constraints
 
 
 def criteria(**updates):
@@ -34,6 +35,68 @@ class Response:
 
 
 class EventCriteriaTests(unittest.TestCase):
+    def test_open_audience_does_not_require_known_age_seniority_or_status(self):
+        data = criteria(seniority=None, skills=["Python"], min_age=0, max_age=130,
+                        seniorities=["Junior", "Mid", "Senior"],
+                        statuses=["Student", "Employed", "Freelancer"])
+        with patch.object(events, "_call_json_generate", return_value=data):
+            result = events.event_to_json("Python workshop. Open to all professional seniorities and statuses. There are no age restrictions.")
+        self.assertIsNone(result["min_age"])
+        self.assertIsNone(result["max_age"])
+        self.assertEqual(result["seniorities"], [])
+        self.assertEqual(result["statuses"], [])
+        from matching_eligibility import candidate_eligible
+        self.assertTrue(candidate_eligible({"skills": []}, result))
+
+    def test_all_attendees_must_meet_explicit_restrictions_is_not_unrestricted(self):
+        data = criteria(seniority="Senior", skills=["Python"], min_age=18, max_age=None,
+                        seniorities=["Senior"], statuses=["Student"])
+        with patch.object(events, "_call_json_generate", return_value=data):
+            result = events.event_to_json("Python workshop. All attendees must have Senior seniority and Student status and be aged 18+.")
+        self.assertEqual(result["seniorities"], ["Senior"])
+        self.assertEqual(result["statuses"], ["Student"])
+        self.assertEqual(result["min_age"], 18)
+
+    def test_explicit_audience_level_and_delivery_language_repair_model_omissions(self):
+        data = criteria(seniority=None, skills=["React"], levels=["Beginner"], languages=[])
+        with patch.object(events, "_call_json_generate", return_value=data):
+            result = events.event_to_json("React hackathon. Audience level: Intermediate. Online event, conducted in English.")
+        self.assertEqual(result["levels"], ["Intermediate"])
+        self.assertEqual(result["languages"], ["English"])
+
+    def test_legacy_one_sided_bounds_convert_and_version_two_stays_ascending(self):
+        self.assertEqual(normalize_event_constraints({"max_birth_year": 2000})["min_birth_year"], 2000)
+        self.assertEqual(normalize_event_constraints({"min_birth_year": 2000})["max_birth_year"], 2000)
+        record = {"criteria_version": 2, "min_birth_year": 1990, "max_birth_year": 2000}
+        self.assertEqual(normalize_event_constraints(record)["min_birth_year"], 1990)
+        with self.assertRaises(ValueError):
+            normalize_event_constraints({"criteria_version": 2, "min_birth_year": 2000, "max_birth_year": 1990})
+
+    def test_learning_skills_status_and_multiple_levels_round_trip(self):
+        data = criteria(skills=["Rust"], topics=["Robotics"], taught_skills=["Rust"], required_skills=[], levels=["Beginner", "Intermediate"], statuses=["Student"], seniorities=[], min_age=18, max_age=None, format="hybrid", event_type="festival")
+        with patch.object(events, "_call_json_generate", return_value=data):
+            result = events.event_to_json("Hybrid Rust festival teaches Rust and Robotics for students of junior and mid levels aged 18+.")
+        for field in ("taught_skills", "required_skills", "levels", "statuses", "seniorities"):
+            self.assertEqual(result[field], data[field])
+        self.assertEqual(result["format"], "hybrid")
+        self.assertTrue(result["remote"])
+        self.assertEqual(result["min_age"], 18)
+        self.assertEqual(result["event_type"], "festival")
+
+    def test_version_two_unknown_attendance_and_unseen_skill(self):
+        data = criteria(skills=["Rust"], format=None, criteria_version=2)
+        with patch.object(events, "_call_json_generate", return_value=data):
+            result = events.extract_event_criteria("Rust workshop for students.", [dict(skills=["Python"], location=None, seniority=None)], "unused")
+        self.assertEqual(result["skills"], ["Rust"])
+        self.assertIsNone(result["format"])
+        self.assertNotIn("remote", result)
+
+    def test_version_two_ages_are_not_birth_years(self):
+        data = criteria(criteria_version=2, min_age=18, max_age=25, min_birth_year=2001, max_birth_year=2008)
+        events._normalize_birth_years("Workshop for ages 18 to 25.", data)
+        self.assertIsNone(data["min_birth_year"])
+        self.assertEqual(data["min_age"], 18)
+
     def test_hackathon_has_no_invented_age_constraint(self):
         data = criteria(min_birth_year=2008, max_birth_year=2001)
         events._normalize_birth_years("Hackathon for junior Python developers.", data)
@@ -53,11 +116,12 @@ class EventCriteriaTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 events._normalize_birth_years("Participants born in 1800.", criteria(min_birth_year=value))
 
-    def test_birth_year_conversion_prompt_uses_current_year(self):
+    def test_prompt_preserves_numeric_ages_without_year_conversion(self):
         with patch.object(events, "date", create=True) as fake_date:
             fake_date.today.return_value.year = 2034
             prompt = events.build_event_prompt("People aged 20 to 25.", [])
-        self.assertIn("The current year is 2034", prompt)
+        self.assertNotIn("The current year is 2034", prompt)
+        self.assertIn("NEVER compute birth years from ages", prompt)
         self.assertNotIn("A hackathon always", prompt)
         self.assertIn("null for both", prompt)
         self.assertIn("one-sided", prompt)

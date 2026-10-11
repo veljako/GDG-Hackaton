@@ -21,7 +21,7 @@ from extractor import (  # noqa: E402
     MAX_CV_CHARACTERS,
     MAX_HTTP_RETRIES,
 )
-from contracts import canonical_city  # noqa: E402
+from contracts import canonical_city, validate_event_constraints, normalize_event_constraints  # noqa: E402
 
 RAW_CV_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 SKIP_DIRS = {"venv", "__pycache__", ".git"}
@@ -29,7 +29,7 @@ SKIP_DIRS = {"venv", "__pycache__", ".git"}
 CSV_FIELDS = ["name", "short_description", "skills", "location", "seniority", "min_birth_year", "max_birth_year", "birth_year", "remote", "event_type", "source"]
 
 # Schema for the criteria the agent extracts from an event description.
-# After the call, skills are kept only when they actually appear in a CV.
+# Extraction is independent of the current candidate dataset.
 EVENT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -56,6 +56,27 @@ EVENT_SCHEMA = {
     ],
     "additionalProperties": False,
 }
+
+EVENT_SCHEMA["properties"].update({
+    "criteria_version": {"const": 2},
+    "format": {"enum": ["online", "in_person", "hybrid", None]},
+    "description": {"type": ["string", "null"]},
+    "country": {"type": ["string", "null"]},
+    "min_age": {"type": ["integer", "null"], "minimum": 0, "maximum": 130},
+    "max_age": {"type": ["integer", "null"], "minimum": 0, "maximum": 130},
+    "price": {"type": ["object", "null"], "properties": {"amount": {"type": "number", "minimum": 0}, "currency": {"type": "string"}}, "required": ["amount", "currency"], "additionalProperties": False},
+})
+for _field_name in ("topics", "taught_skills", "required_skills", "goals", "roles", "levels", "seniorities", "statuses", "languages"):
+    EVENT_SCHEMA["properties"][_field_name] = {"type": "array", "items": {"type": "string"}}
+for _field_name, _values in {"goals": ["Learning", "Networking", "Building", "Career", "Research"],
+                             "roles": ["Participant", "Mentor", "Speaker", "Judge"],
+                             "levels": ["Beginner", "Intermediate", "Advanced"]}.items():
+    EVENT_SCHEMA["properties"][_field_name]["items"] = {"enum": _values}
+EVENT_SCHEMA["properties"]["seniorities"]["items"] = {"enum": ["Junior", "Mid", "Senior"]}
+EVENT_SCHEMA["properties"]["statuses"]["items"] = {"enum": ["Student", "Employed", "Freelancer"]}
+for _field_name in ("date", "end_date", "deadline"):
+    EVENT_SCHEMA["properties"][_field_name] = {"type": ["string", "null"], "pattern": r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+EVENT_SCHEMA["required"].remove("remote")
 
 _VALIDATOR = Draft202012Validator(EVENT_SCHEMA)
 
@@ -208,130 +229,86 @@ def build_event_prompt(event_text: str, cvs: list) -> str:
         raise ValueError("Event description is empty.")
     if len(event_text) > MAX_CV_CHARACTERS:
         raise ValueError("Event description exceeds the 20000 character limit.")
-    current_year = date.today().year
-    vocabulary = list(skill_vocabulary(cvs).values())
-    locations = _unique([cv["location"] for cv in cvs])
-    levels = _unique([cv["seniority"] for cv in cvs])
-    if vocabulary:
-        skill_rule = (
-            "only skills this event needs AND that appear in the list below. "
-            "Return them exactly as written in the list. "
-            "If none apply, return an empty array. Do not invent a skill that is not on the list."
-        )
-    else:
-        skill_rule = (
-            "skills this event needs, taken from the description. "
-            "If the description names no skill, return an empty array."
-        )
-
-    return f"""
-You help a hackathon or conference organizer find people.
-The organizer describes the event in free text. Extract search criteria. Follow every rule below. If two rules seem to conflict, the negative rule ("do not") wins.
-
-Skills:
-- {skill_rule}
-- A skill is any technology, language, tool, framework, library, or subject the event is about or the participants should know.
-- Include the subject of the event even when it is not written as "people who know X".
-  Example: "AI hackathon in Belgrade, I need juniors who know Python" -> skills must include both "AI" and "Python".
-  "AI" is required because the event is an AI hackathon. Do not drop it just because only Python is in the phrase "who know".
-- Also include domains and methods named in the text, such as machine learning, deep learning, NLP, or LLM, using a short name.
-- Do not include sponsors, venues, cities, dates, food, or seniority words as skills.
-- Do not include a skill that the organizer says they do not need.
-
-Location:
-- City or city plus country where the event happens, or where the people should come from.
-- If several places appear, prefer the place where participants must be or must travel.
-- If you can, copy the closest string from the location list below.
-- If no place is mentioned, null. Do not invent one.
-
-Seniority:
-- The career level of the people they want: "Student / Junior", "Mid", or "Senior", or null.
-- "Junior", "student", "intern" mean seniority. They are not an age and they are not a birth year.
-- If they want participants at one level and mentors at another, return the participant level.
-
-Name:
-- "name" is the event name, a short title.
-- Use it only when the organizer states a name, for example "DevFest Belgrade".
-- If they do not name the event, return null. Do not copy the whole description into "name".
-
-Short description:
-- "short_description" is a summary of the event in one or two sentences, at most about 200 characters.
-- Write it in the same language as the event description.
-- Say what the event is, its topic, and who it is for, using only facts from the text. Do not invent dates, prizes, sponsors, or places.
-- Do not copy the whole description. Do not start with "The organizer" or "This text".
-- Return null only when the text says nothing about the event itself.
-
-Birth years:
-- "min_birth_year" and "max_birth_year" are top-level fields, not nested in another object.
-- The current year is {current_year}.
-- For every event type, including a hackathon, return null for both years unless the organizer explicitly requests an age or birth-year constraint.
-- Do not invent ages from words like junior, senior, student, beginner, or experienced.
-- Preserve one-sided bounds: "at least 18 years old" sets min_birth_year to {current_year - 18} and leaves max_birth_year null; "at most 25 years old" sets max_birth_year to {current_year - 25} and leaves min_birth_year null.
-- Event dates, conference years, and deadlines are not birth years. "14 to 16 November {current_year}" does not produce a birth year.
-- max_birth_year is the smaller number. It is the birth year of the oldest acceptable person.
-- min_birth_year is the larger number. It is the birth year of the youngest acceptable person.
-- max_birth_year must be less than or equal to min_birth_year.
-- Age range "20 to 25": the oldest is 25, so max_birth_year = {current_year} - 25. The youngest is 20, so min_birth_year = {current_year} - 20.
-  Worked example in {current_year}: max_birth_year = {current_year - 25}, min_birth_year = {current_year - 20}.
-- A single exact age N has both bounds equal to {current_year} - N. Do not invent a tolerance for an approximate age.
-- An exact birth year Y: min_birth_year and max_birth_year are both Y.
-
-Remote:
-- "remote" is true when participants can attend without being in the room: remote, online, virtual, hybrid, from home.
-- "remote" is false when the event is in person only, or when the text never says it is remote, online, or virtual.
-- A city by itself does not make the event remote. "AI hackathon in Belgrade" is remote false.
-- "Online AI hackathon" is remote true. If no city is named, location is null.
-- Hybrid is remote true, because people can join without traveling.
-- Online registration, tickets, applications, advertising or streaming recordings do not mean online attendance.
-- Explicit negation such as "remote participation is not available" means remote false.
-
-Event type:
-- "event_type" is the kind of event named in the text, as a short lowercase word.
-- Use "hackathon", "conference", "meetup", or "workshop" when that word, or a clear synonym, is in the text.
-- If the text names more than one, use the one the organizer is actually running.
-- If the text does not say what kind of event it is, return null. Do not guess from the skills or the city.
-- "AI hackathon in Belgrade" is event_type "hackathon". "developers conference" is "conference".
-
-Wrong answer to refuse:
-Input: "AI hackathon in Belgrade, I need juniors who know Python"
-Wrong: skills only ["Python"], a guessed birth-year range, remote true, or event_type null.
-Right: name null, short_description "AI hackathon in Belgrade for junior Python developers.", skills include "AI" and "Python", location "Belgrade", seniority "Junior" or "Student / Junior", min_birth_year null, max_birth_year null, remote false, event_type "hackathon".
-
-Skills present in the CVs:
-{json.dumps(vocabulary, ensure_ascii=False)}
-
-Locations present in the CVs:
-{json.dumps(locations, ensure_ascii=False)}
-
-Seniority levels present in the CVs:
-{json.dumps(levels, ensure_ascii=False)}
-
+    return f"""Extract explicitly stated event facts, never limited to candidate skills.
+Return criteria_version:2. skills are practiced/useful, taught_skills are learned,
+required_skills are explicit prerequisites, topics are subjects. Exclude sponsors and negated requirements.
+goals are Learning|Networking|Building|Career|Research. roles are Participant|Mentor|Speaker|Judge.
+levels are Beginner|Intermediate|Advanced; [] means all levels. Preserve multiple levels.
+seniorities holds only Junior, Mid, Senior restrictions; statuses holds Student, Employed, Freelancer.
+Student never implies Junior or age. Do not infer age from event dates or seniority.
+min_age/max_age preserve numeric ages; NEVER compute birth years from ages.
+min_birth_year/max_birth_year use ascending order, only explicit born/birth year rules,
+one-sided bounds remain open; when unstated return null for both.
+format online|in_person|hybrid|null; online tickets/registration do not imply online attendance.
+Unknown format is null. country,languages,price (amount/currency or null) are explicit facts.
+event_type hackathon|conference|meetup|workshop|festival|null. name is stated title or null.
+date, end_date, deadline preserve only explicitly stated ISO YYYY-MM-DD dates; otherwise null.
+Do not convert natural-language dates or infer the current date.
+short_description summarizes facts; description can preserve the original text.
 EVENT DESCRIPTION:
----
 {event_text}
----
 """
 
 
 def extract_event_criteria(event_text: str, cvs: list, api_url: str, max_retries: int = 1) -> dict:
-    """Send the event description to Gemma and return criteria aligned with CV skills."""
-    vocabulary = skill_vocabulary(cvs)
+    """Extract grounded criteria independently of the existing CV vocabulary."""
+    vocabulary = {}
     prompt = build_event_prompt(event_text, cvs)
     data = _call_json_generate(api_url, prompt, EVENT_SCHEMA, min(MAX_HTTP_RETRIES, max_retries))
-    if vocabulary and any(norm(skill) not in vocabulary for skill in data["skills"]):
-        raise ValueError("Event response contains skills outside the candidate vocabulary.")
-    data["skills"] = (_dedupe_known_skills(data["skills"], vocabulary)
-                      if vocabulary else _dedupe_skills(data["skills"]))
+    data["criteria_version"] = 2
+    for field in ("skills", "topics", "taught_skills", "required_skills", "goals", "roles", "levels", "seniorities", "statuses", "languages"):
+        data[field] = _dedupe_skills(data.get(field) or [])
+    for field in ("skills", "taught_skills", "required_skills"):
+        for skill in data[field]:
+            pattern = next((pattern for name, pattern in _SCRAPE_SKILLS if norm(name) == norm(skill)), r"(?<!\w)" + re.escape(skill) + r"(?!\w)")
+            if not re.search(pattern, event_text, re.I):
+                raise ValueError("Event response contains an unstated skill.")
     _merge_scraped_skills(event_text, data, vocabulary)
     _normalize_event_type(event_text, data)
     _normalize_birth_years(event_text, data)
+    if not _mentions_age_or_birth_year(event_text):
+        data["min_age"] = data["max_age"] = None
+    _normalize_open_audience(event_text, data)
+    _normalize_explicit_audience_fields(event_text, data)
     _normalize_name(data)
     _normalize_short_description(data)
-    _normalize_remote(event_text, data)
+    _normalize_format(event_text, data)
+    _normalize_dates(event_text, data)
+    validate_event_constraints(data)
     for field in ("location", "seniority"):
         if isinstance(data.get(field), str):
             data[field] = data[field].strip()[:200] or None
     return data
+
+
+def _normalize_open_audience(event_text: str, data: dict) -> None:
+    """Explicitly unrestricted audiences must not require known private metadata."""
+    if re.search(r"\b(?:no\s+age\s+(?:restrictions?|limits?)|all\s+ages|without\s+age\s+(?:restrictions?|limits?))\b", event_text, re.I):
+        data["min_age"] = data["max_age"] = None
+    all_scope = r"\b(?:all|any)\s+(?:(?:professional|current|employment)\s+)?"
+    seniorities = r"(?:seniorit(?:y|ies)|experience\s+levels?)"
+    if re.search(all_scope + seniorities + r"\b", event_text, re.I):
+        data["seniorities"] = []
+        data["seniority"] = None
+    if re.search(all_scope + r"statuses\b|" + all_scope + seniorities + r"\s+and\s+(?:employment\s+)?statuses\b", event_text, re.I):
+        data["statuses"] = []
+
+
+def _normalize_explicit_audience_fields(event_text: str, data: dict) -> None:
+    """Recover literal audience labels and delivery languages, without inference."""
+    labelled = re.search(r"\baudience\s+levels?\s*:\s*([^.;!?\n]+)", event_text, re.I)
+    if labelled:
+        levels = re.findall(r"\b(?:Beginner|Intermediate|Advanced)\b", labelled[1], re.I)
+        if levels:
+            data["levels"] = _dedupe_skills([level.title() for level in levels])
+        elif re.search(r"\ball\s+levels\b", labelled[1], re.I):
+            data["levels"] = []
+    languages = re.findall(
+        r"\b(?:taught|conducted|delivered|held)\s+in\s+(English|Serbian|French|German|Spanish|Italian|Portuguese|Russian|Japanese|Chinese)\b",
+        event_text, re.I,
+    )
+    if languages:
+        data["languages"] = _dedupe_skills((data.get("languages") or []) + [language.title() for language in languages])
 
 
 def _dedupe_skills(skills: list) -> list:
@@ -433,10 +410,21 @@ def _normalize_birth_years(event_text: str, data: dict) -> None:
     if not _mentions_age_or_birth_year(event_text):
         _set_birth_years(data, None, None)
         return
+    if data.get("criteria_version") == 2:
+        if not re.search(r"\b(?:born|birth|godiste|godište)\b", event_text, re.I):
+            _set_birth_years(data, None, None)
+        return
     younger_year = _as_int(data.get("min_birth_year"))
     older_year = _as_int(data.get("max_birth_year"))
     if younger_year is not None and older_year is not None and older_year > younger_year:
         _set_birth_years(data, older_year, younger_year)
+
+
+def _normalize_dates(event_text: str, data: dict) -> None:
+    explicit = set(re.findall(r"(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])", event_text))
+    for field in ("date", "end_date", "deadline"):
+        value = data.get(field)
+        data[field] = value if value in explicit else None
 
 
 def _normalize_name(data: dict) -> None:
@@ -487,6 +475,7 @@ _EVENT_TYPES = (
     ("hackathon", r"\bhackathons?\b|\bhakaton\b"),
     ("conference", r"\bconferences?\b|\bkonferencij[ae]\b"),
     ("meetup", r"\bmeet-?ups?\b"),
+    ("festival", r"\bfestivals?\b"),
     ("workshop", r"\bworkshops?\b|\bradionic[ae]\b"),
 )
 
@@ -507,6 +496,30 @@ def _normalize_event_type(event_text: str, data: dict) -> None:
         return
     found.sort()
     data["event_type"] = found[0][1]
+
+
+def _normalize_format(event_text: str, data: dict) -> None:
+    clauses = []
+    for clause in re.split(r"[.;!?\n]", event_text):
+        if re.search(r"\b(?:registration|tickets?|sign[- ]?up|applications?|recordings?|advertising)\b", clause, re.I) and not re.search(r"\b(?:attend|attendance|participation|participate|join)\b", clause, re.I):
+            continue
+        clauses.append(clause)
+    text = ". ".join(clauses)
+    hits = list(_REMOTE_WORDS.finditer(text))
+    negated = any(_mention_negated(text, h.start(), h.end()) for h in hits)
+    if re.search(r"\bhybrid\b", text, re.I) and not negated:
+        value = "hybrid"
+    elif negated or _IN_PERSON_WORDS.search(text):
+        value = "in_person"
+    elif hits:
+        value = "online"
+    else:
+        value = None
+    data["format"] = value
+    if value is None:
+        data.pop("remote", None)
+    else:
+        data["remote"] = value in ("online", "hybrid")
 
 
 def _normalize_remote(event_text: str, data: dict) -> None:
@@ -568,12 +581,14 @@ def _merge_scraped_skills(event_text: str, data: dict, vocabulary: dict) -> None
         return any(_mention_negated(clause, hit.start(), hit.end())
                    for clause in re.split(r"[.;!?\n]", event_text)
                    for hit in re.finditer(pattern, clause, re.I))
-    data["skills"] = _dedupe_skills([skill for skill in data.get("skills") or [] if not excluded(skill)])
+    for field in ("skills", "required_skills"):
+        data[field] = _dedupe_skills([skill for skill in data.get(field) or [] if not excluded(skill)])
 
 
 def _years_match(birth_year: Optional[int], criteria: dict, required: bool = False) -> bool:
-    low = _as_int(criteria.get("max_birth_year"))
-    high = _as_int(criteria.get("min_birth_year"))
+    normalized = normalize_event_constraints(criteria)
+    low = _as_int(normalized.get("min_birth_year"))
+    high = _as_int(normalized.get("max_birth_year"))
     # max_birth_year is the smaller number, so the two fields may be out of numeric order.
     if low is not None and high is not None and low > high:
         low, high = high, low

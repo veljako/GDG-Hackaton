@@ -4,7 +4,7 @@ New Firebase attendee accounts follow Account → Your CV → Review profile →
 
 Upload is mandatory: a PDF CV, resume, or background summary, up to 5 MiB and 20 pages. The upload remains private. Gemma automatically proposes fields; the person corrects them and supplies missing information in custom forms matching GEvents' light/dark design. Education, work history, languages, phone, and profile links are editable but optional. Save progress and Save and continue preserve a private draft across refresh/sign-in; unsaved edits are clearly labeled.
 
-Completion requires names, a headline, location, description, a skill, an interest, event roles, goals, event types, and formats. Status, seniority and birth year can be explicitly unknown. Beginners do not need past employment or a formal CV: a PDF background summary works. Account identity, email, timestamps, file paths, and completion are server-owned.
+Completion requires names, a headline, location, description, an acquired or learning skill, an interest, event roles, goals, event types, and formats. Country, maximum event price and exact birth date are optional. Exact birth date remains private and must agree with birth year. Status, seniority and birth year can be explicitly unknown. Beginners do not need past employment or a formal CV: a PDF background summary works. Account identity, email, timestamps, file paths, and completion are server-owned.
 
 ## Data and pipeline handoff
 
@@ -19,9 +19,9 @@ Endpoints: `GET/POST /api/onboarding/draft`, `POST /api/onboarding/complete`, an
 
 ## Verification on 11 October 2026
 
-149 Node tests and 234 Python tests pass. Server/frontend TypeScript checks and the production build pass. Production browser fixtures pass at 1440px and 390px for account controls, mandatory upload, extraction conflict/retry, editable structured records, save/resume, validation, dark theme, reduced motion, overflow, a delayed completion/polling race, Home navigation, and matching outage/retry. Existing Firebase registration/recovery browser contracts also pass at both widths.
+187 Node tests and 260 Python tests pass. Server/frontend TypeScript checks and the production build pass. Production browser fixtures pass at 1440px and 390px for account controls, mandatory upload, extraction conflict/retry, editable structured records, save/resume, validation, dark theme, reduced motion, overflow, a delayed completion/polling race, Home navigation, and matching outage/retry. Existing Firebase registration/recovery browser contracts also pass at both widths.
 
-These checks use isolated fixtures and transaction doubles; they do not create Firebase accounts or claim live Firebase/Gemma onboarding was exercised. Activate by deploying the frontend, restarting/updating the Node API, and updating the Python worker together. Existing model/storage configuration is still required. No cloud deployment was performed for this change.
+These checks use isolated fixtures and transaction doubles; they do not create Firebase accounts or claim live Firebase/Gemma onboarding was exercised. The local preview now runs the refreshed Node API, Python worker and production frontend together. Permanent Firebase Hosting was not released. The later matching extension and live Firestore quota limitation are documented in docs/matching-data.md.
 
 ```powershell
 $env:NODE_OPTIONS='--require=C:\GDG\.runtime\preload-rollup.cjs'

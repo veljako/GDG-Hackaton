@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { eventSchema, profileSchema } from "./schema";
 import { normalizeState } from "../src/discovery";
+import { matchingProfileError, matchingEventError } from "../src/matching-data";
 import type { DemoState } from "../src/types";
 import type { Repository } from "./repository";
 
@@ -178,6 +179,16 @@ export function validateDataset(input: unknown): DemoState {
     recommendations: undefined,
   } as DemoState);
   delete state.recommendations;
+  for (const profile of state.people) {
+    const error = matchingProfileError(profile);
+    if (error) throw Error(error);
+  }
+  for (const event of state.events) {
+    const error = matchingEventError(event);
+    if (error) throw Error(error);
+    if (event.status !== "draft" && !event.format)
+      throw Error("Choose an attendance format before publishing an event.");
+  }
   const sets = Object.fromEntries(
     entityCollections.map((key) => {
       const ids = state[key].map((record) => record.id);

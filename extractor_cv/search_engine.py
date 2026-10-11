@@ -1,8 +1,8 @@
 """
 Search engine: hybrid matchmaking of candidates to an event.
 
-1. Hard metadata pre-filter built from the event (age range, seniority, and city
-   when the event is not remote).
+1. Hard metadata pre-filter for explicit birth-year and seniority constraints,
+   followed by complete required-skill/status/age eligibility checks.
 2. Cosine similarity between the event's "ideal candidate" embedding and the
    embeddings of the candidates that passed the filter.
 
@@ -17,8 +17,9 @@ from typing import Any, Dict, List, Optional, Union
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from extractors import EventDict  # noqa: E402
-from contracts import validate_event_constraints
-from vector_store import UNKNOWN, MatchmakingStore, city_key, event_narrative, seniority_key  # noqa: E402
+from contracts import validate_event_constraints, normalize_event_constraints
+from matching_eligibility import candidate_eligible
+from vector_store import UNKNOWN, MatchmakingStore, event_narrative, seniority_key  # noqa: E402
 
 
 @dataclass
@@ -41,25 +42,19 @@ def build_hard_filter(event: EventDict) -> Optional[Dict[str, Any]]:
     validate_event_constraints(event)
     conditions: List[Dict[str, Any]] = []
 
-    younger = event.get("min_birth_year")  # minimum age -> latest birth year
-    older = event.get("max_birth_year")    # maximum age -> earliest birth year
-    if younger is not None and older is not None:
-        older, younger = sorted((older, younger))
-    if older is not None:
-        conditions.append({"birth_year": {"$gte": int(older)}})
-    if younger is not None:
-        conditions.append({"birth_year": {"$lte": int(younger)}})
-
-    if event.get("seniority"):
-        level = seniority_key(event["seniority"])
-        if level == UNKNOWN:
-            raise ValueError("Unrecognized explicit seniority constraint.")
-        conditions.append({"seniority_level": level})
-
-    if not event.get("remote") and event.get("location"):
-        city = city_key(event["location"])
-        if city != UNKNOWN:
-            conditions.append({"city": city})
+    event = normalize_event_constraints(event)
+    if event.get('min_birth_year') is not None:
+        conditions.append({'birth_year': {'$gte': event['min_birth_year']}})
+    if event.get('max_birth_year') is not None:
+        conditions.append({'birth_year': {'$lte': event['max_birth_year']}})
+    seniorities = event.get('seniorities') or []
+    if not seniorities and event.get('seniority'):
+        seniorities = [event['seniority']]
+    if seniorities:
+        levels = [seniority_key(value) for value in seniorities]
+        if UNKNOWN in levels:
+            raise ValueError('Unrecognized explicit seniority constraint.')
+        conditions.append({'seniority_level': {'$in': levels}} if len(levels) > 1 else {'seniority_level':levels[0]})
 
     return _combine(conditions)
 
@@ -96,5 +91,6 @@ def find_best_matches(
     where = build_hard_filter(event) if apply_hard_filters else None
     return [
         MatchResult(candidate_id=candidate_id, similarity=similarity)
-        for candidate_id, similarity in store.query_candidates(vector, k=top_n, where=where)
-    ]
+        for candidate_id, similarity in store.query_candidates(vector, k=1000 if apply_hard_filters else top_n, where=where)
+        if not apply_hard_filters or candidate_eligible(store.get_candidate(candidate_id) or {}, event)
+    ][:top_n]

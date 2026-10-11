@@ -6,7 +6,7 @@ export function trainingProfile(record: UserDocument, origin: "real" | "syntheti
   return {
     entity_id: origin === "synthetic" ? `synthetic:${record.user_id}` : record.user_id,
     data_origin: origin,
-    input_version: "user-profile-v1",
+    input_version: "user-profile-v2",
     source_hash: sourceHash(record),
     features: {
       title: record.title,
@@ -16,6 +16,8 @@ export function trainingProfile(record: UserDocument, origin: "real" | "syntheti
       experience_level: record.experience_level ?? null,
       experience: record.experience,
       skills: record.skills,
+      learningSkills: record.learningSkills ?? [],
+      country: record.country ?? "",
       interests: record.interests,
       roles: record.roles,
       languages: record.languages ?? [],

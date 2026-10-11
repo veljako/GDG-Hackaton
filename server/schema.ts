@@ -9,7 +9,18 @@ const text = z.string().max(10000);
 const short = z.string().max(200);
 const list = z.array(short).max(50);
 const role = z.enum(["Participant", "Mentor", "Speaker", "Judge"]);
-const kind = z.enum(["hackathon", "conference", "meetup", "festival"]);
+const kind = z.enum(["hackathon", "conference", "meetup", "workshop", "festival"]);
+const price = z.object({ amount: z.number().finite().min(0).max(1000000), currency: z.string().regex(/^[A-Z]{3}$/) }).strict();
+export const eligibilitySchema = z.object({
+  requiredSkills: list.optional(),
+  seniorities: z.array(z.enum(["Junior", "Mid", "Senior"])).max(3).optional(),
+  statuses: z.array(z.enum(["Student", "Employed", "Freelancer"])).max(3).optional(),
+  minAge: z.number().int().min(0).max(130).nullable().optional(),
+  maxAge: z.number().int().min(0).max(130).nullable().optional(),
+  minBirthYear: z.number().int().min(1900).max(2100).nullable().optional(),
+  maxBirthYear: z.number().int().min(1900).max(2100).nullable().optional(),
+}).strict().refine(v => v.minAge == null || v.maxAge == null || v.minAge <= v.maxAge, {message: "Minimum age must not exceed maximum age."})
+  .refine(v => v.minBirthYear == null || v.maxBirthYear == null || v.minBirthYear <= v.maxBirthYear, {message: "Minimum birth year must not exceed maximum birth year."});
 const goal = z.enum([
   "Learning",
   "Networking",
@@ -30,12 +41,19 @@ const period = <
 ) => !value.start_date || !value.end_date || value.start_date <= value.end_date;
 export const eventSchema = z
   .object({
+    matchingVersion: z.literal(2).optional(),
+    topics: list.optional(),
+    country: short.optional(),
+    languages: list.optional(),
+    price: price.nullable().optional(),
+    eligibility: eligibilitySchema.optional(),
     kind: kind.optional(),
     organizationId: id.optional(),
     registration: z.enum(["review", "automatic"]).optional(),
     audience: z
       .object({
         skills: list,
+        taughtSkills: list.optional(),
         goals: z.array(goal).max(5),
         roles: z.array(role).max(4),
         levels: z.array(level).max(3),
@@ -53,7 +71,7 @@ export const eventSchema = z
     theme: short,
     tags: list,
     color: z.enum(["blue", "red", "yellow", "green"]),
-    format: z.enum(["In person", "Hybrid", "Online"]),
+    format: z.enum(["In person", "Hybrid", "Online"]).nullable(),
     capacity: z.number().int().positive().max(100000),
     minTeamSize: z.number().int().positive().max(100),
     maxTeamSize: z.number().int().positive().max(100),
@@ -101,6 +119,9 @@ export const profileSchema = z
       )
       .max(50),
     languages: list,
+    country: short,
+    learningSkills: list,
+    birth_date: z.iso.date().refine(date => date >= "1900-01-01" && date <= new Date().toISOString().slice(0,10), "Choose a past birth date from 1900 onward.").nullable(),
     status: z.enum(["Student", "Employed", "Freelancer"]).nullable(),
     birth_year: z
       .number()
@@ -125,11 +146,12 @@ export const profileSchema = z
     preferences: z
       .object({
         goals: z.array(goal).max(5),
-        kinds: z.array(kind).max(4),
+        kinds: z.array(kind).max(5),
         formats: z.array(format).max(3),
         location: short,
         level: level.optional(),
         notify: z.boolean(),
+        maxPrice: price.nullable().optional(),
       })
       .strict(),
   })

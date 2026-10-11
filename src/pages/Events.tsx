@@ -72,7 +72,7 @@ export default function Events() {
     <>
       <PageTitle
         title="Find your next thing."
-        description="Conferences, meetups, hackathons and festivals."
+        description="Conferences, meetups, workshops, hackathons and festivals."
       />
       <div className="tabs" aria-label="Event discovery">
         <button aria-pressed={!personal} onClick={() => change("view", "")}>
@@ -247,12 +247,12 @@ export default function Events() {
         <Empty
           title={
             personal
-              ? "Let’s find your next opportunity"
+              ? "No suitable event right now"
               : "No events match these filters"
           }
           description={
             personal
-              ? "Add interests, skills and goals to your profile, or explore all events. A match is a suggestion, not an entry requirement."
+              ? "Explore all events, adjust your filters, or update your interests and learning goals."
               : "Try a broader topic, city or date range."
           }
           action={

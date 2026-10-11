@@ -44,11 +44,15 @@ export function MatchingControls({
       </button>
       <div role="status">
         {error ||
-          result?.warnings?.join(" ") ||
           (result
-            ? `${result.results.length} matches · ${matchingSourceLabel(result.source)}`
+            ? route === "recommendations" && !result.results.length
+              ? "No suitable event right now. Explore all events or update your interests."
+              : `${result.results.length} matches · ${matchingSourceLabel(result.source)}`
             : "Use your interests and meaning to find matches.")}
       </div>
+      {!!result?.warnings?.length && (
+        <p role="status">{result.warnings.join(" ")}</p>
+      )}
       {result?.results.map((r, i) => (
         <p key={r.eventId ?? r.personId ?? i}>
           {names?.[r.personId ?? r.eventId ?? ""]} {r.reasons.join(" · ")}

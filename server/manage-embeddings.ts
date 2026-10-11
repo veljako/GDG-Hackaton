@@ -56,7 +56,7 @@ if (operation === "indexes") {
   const kind =
     operation === "migrate-users"
       ? undefined
-      : (z.enum(["user", "hackathon"]).parse(values.kind) as EmbeddingKind);
+      : (z.enum(["user", "hackathon", "event"]).parse(values.kind) as EmbeddingKind);
   let input: unknown;
   if (operation === "upsert" || operation === "search") {
     if (!values.source)

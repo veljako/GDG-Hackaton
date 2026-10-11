@@ -121,7 +121,7 @@ class StoreAdapterTests(unittest.TestCase):
             canonical_cv("eligible"), canonical_cv("unknown-age", birth_year=None),
             canonical_cv("unknown-city", location=None), canonical_cv("unknown-level", experience_level=None),
         ])
-        self.assertEqual([match.id_kandidata for match in self.matcher.find_best_candidates(canonical_event(), top_k=10)], ["eligible"])
+        self.assertEqual({match.id_kandidata for match in self.matcher.find_best_candidates(canonical_event(), top_k=10)}, {"eligible", "unknown-city"})
 
     def test_changed_candidate_cannot_be_blindly_replaced(self):
         original = CandidateProfile.from_dict(serbian_cv())

@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { Repository } from "./repository";
 import type { CvStorage } from "./cv-storage";
 import { profileSchema } from "./schema";
+import { eventEligibility } from "../src/matching-data";
 import { requiresOnboarding } from "../src/onboarding";
+import {
+  suitableSemanticSimilarity,
+  recommendationOutcome,
+} from "../src/recommendation-policy";
 import { execute, view, type Session } from "./service";
 import {
   registrationOpen,
@@ -103,9 +108,9 @@ export function matchingRoutes(
           pdf_base64: bytes.toString("base64"),
           storage_path: path,
         });
-        const current = (await (repository.readFresh?.() ?? repository.read())).people.find(
-          (p) => p.id === person.id,
-        );
+        const current = (
+          await (repository.readFresh?.() ?? repository.read())
+        ).people.find((p) => p.id === person.id);
         if (!profileSchema.safeParse(response.proposal).success)
           throw new MatchingUnavailable();
         if (
@@ -281,6 +286,11 @@ export function matchingRoutes(
               (r) =>
                 visible.some((p) => p.id === r.personId && p.lookingForTeam) &&
                 r.personId !== person.id &&
+                !!current.people.find(
+                  (p) =>
+                    p.id === r.personId &&
+                    eventEligibility(currentEvent, p).eligible,
+                ) &&
                 current.applications.some(
                   (a) =>
                     a.eventId === eventId &&
@@ -303,6 +313,13 @@ export function matchingRoutes(
         searchEvents(current, { ...filters, q: "" }).filter(
           (e) =>
             registrationOpen(e) &&
+            (route !== "recommendations" ||
+              (!!current.people.find(
+                (p) => p.id === person.id && eventEligibility(e, p).eligible,
+              ) &&
+                !current.applications.some(
+                  (a) => a.eventId === e.id && a.personId === person.id,
+                ))) &&
             current.applications.filter(
               (a) => a.eventId === e.id && a.status !== "rejected",
             ).length < e.capacity,
@@ -328,13 +345,22 @@ export function matchingRoutes(
         );
         const effectiveFilters = { ...interpreted.data, ...explicit };
         const allowed = eligible(await repository.read(), effectiveFilters);
+        const results = response.results
+          .filter(
+            (r) =>
+              allowed.some((e) => e.id === r.eventId) &&
+              (route !== "recommendations" ||
+                suitableSemanticSimilarity(r.similarity)),
+          )
+          .slice(0, input.limit ?? 20);
         return {
           model: response.model,
           warnings: response.warnings,
           source: "semantic",
-          results: response.results
-            .filter((r) => allowed.some((e) => e.id === r.eventId))
-            .slice(0, input.limit ?? 20),
+          results,
+          ...(route === "recommendations"
+            ? { outcome: recommendationOutcome(results) }
+            : {}),
         };
       } catch (error) {
         if (!(error instanceof MatchingUnavailable)) throw error;
@@ -353,6 +379,9 @@ export function matchingRoutes(
         return {
           source: "structured",
           results: results.slice(0, input.limit ?? 20),
+          ...(route === "recommendations"
+            ? { outcome: recommendationOutcome(results) }
+            : {}),
           warnings: [error.message],
         };
       }

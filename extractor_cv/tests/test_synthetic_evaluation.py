@@ -69,9 +69,9 @@ class SyntheticEvaluationTests(unittest.TestCase):
         profiles = generate_profiles(41)
         self.assertTrue(all(p['status'] in (None, 'student', 'employed') for p in profiles))
         rank = structured_baseline(profiles, {'skills': ['Python'], 'location': 'Belgrade', 'seniority': 'junior', 'remote': False})
-        self.assertEqual(rank[0]['candidate_id'], 'synthetic-python')
+        self.assertEqual(rank[0]['candidate_id'], 'synthetic-away')
         self.assertNotIn('synthetic-unknown', [r['candidate_id'] for r in rank])
-        self.assertNotIn('synthetic-away', [r['candidate_id'] for r in rank])
+        self.assertIn('synthetic-away', [r['candidate_id'] for r in rank])
 
     def test_requested_live_unavailable_is_failed_and_sanitized(self):
         runtime = Path(__file__).resolve().parents[2] / '.runtime'

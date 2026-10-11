@@ -72,6 +72,13 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
   const [profile, setProfile] = useState<ReviewedProfile>(() =>
     initialReviewedProfile(person),
   );
+  const [budgetCurrency, setBudgetCurrency] = useState(
+    person.preferences?.maxPrice?.currency ?? "EUR",
+  );
+  useEffect(() => {
+    if (profile.preferences.maxPrice?.currency)
+      setBudgetCurrency(profile.preferences.maxPrice.currency);
+  }, [profile.preferences.maxPrice?.currency]);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
   const [source, setSource] = useState<SemanticResponse | null>(null);
   const [busy, setBusy] = useState("Loading your setup…");
@@ -207,6 +214,7 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
       previous.filter(
         (field) =>
           field !== key &&
+          !(key === "learningSkills" && field === "skills") &&
           !(
             key === "preferences" &&
             ["goals", "kinds", "formats"].includes(field)
@@ -641,6 +649,12 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
                       "A student or project role works too.",
                     )}
                     {field("city", "City or location")}
+                    {field(
+                      "country",
+                      "Country",
+                      false,
+                      "Optional; helps match event locations.",
+                    )}
                   </div>
                   <label className="ob-field">
                     Account email
@@ -689,15 +703,43 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
                         min="1900"
                         max={new Date().getFullYear()}
                         value={profile.birth_year ?? ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           update(
                             "birth_year",
                             e.target.value ? Number(e.target.value) : null,
+                          );
+                          if (
+                            profile.birth_date &&
+                            Number(profile.birth_date.slice(0, 4)) !==
+                              Number(e.target.value)
                           )
-                        }
+                            update("birth_date", null);
+                        }}
                       />
                       <small>
                         Leave empty if you prefer not to provide it.
+                      </small>
+                    </label>
+                    <label className="ob-field">
+                      Exact birth date
+                      <input
+                        name="birth_date"
+                        type="date"
+                        min="1900-01-01"
+                        max={new Date().toISOString().slice(0, 10)}
+                        value={profile.birth_date ?? ""}
+                        onChange={(e) => {
+                          update("birth_date", e.target.value || null);
+                          if (e.target.value)
+                            update(
+                              "birth_year",
+                              Number(e.target.value.slice(0, 4)),
+                            );
+                        }}
+                      />
+                      <small>
+                        Optional and private. Resolves age requirements around
+                        your birthday.
                       </small>
                     </label>
                     {field("school", "School or organization")}
@@ -715,12 +757,27 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
                       onChange={(values) => update("skills", values)}
                       invalid={missing.includes("skills")}
                     />
-                    <small>Include skills you are learning.</small>
+                    <small>
+                      Skills you already use. New to this? Add a skill you want
+                      to learn below instead.
+                    </small>
                     {missing.includes("skills") && (
                       <small className="ob-invalid">
-                        Add at least one skill.
+                        Add a skill you have or want to learn.
                       </small>
                     )}
+                  </label>
+                  <label className="ob-field">
+                    Skills you want to learn
+                    <ListInput
+                      name="learningSkills"
+                      values={profile.learningSkills ?? []}
+                      onChange={(values) => update("learningSkills", values)}
+                      placeholder="Python, public speaking…"
+                    />
+                    <small>
+                      You can start with learning goals and no existing skills.
+                    </small>
                   </label>
                   <div className="ob-chips">
                     {profile.skills.map((skill) => (
@@ -776,6 +833,67 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
                       </small>
                     )}
                   </label>
+                  <label className="ob-field">
+                    Skills you want to learn
+                    <ListInput
+                      name="learningSkills"
+                      values={profile.learningSkills ?? []}
+                      onChange={(values) => update("learningSkills", values)}
+                      placeholder="Python, public speaking…"
+                    />
+                    <small>
+                      Optional; different from skills you already have.
+                    </small>
+                  </label>
+                  <div className="ob-grid">
+                    <label className="ob-field">
+                      Maximum event budget
+                      <input
+                        name="maxPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={profile.preferences.maxPrice?.amount ?? ""}
+                        onChange={(e) =>
+                          update("preferences", {
+                            ...profile.preferences,
+                            maxPrice:
+                              e.target.value === ""
+                                ? null
+                                : {
+                                    amount: Number(e.target.value),
+                                    currency: budgetCurrency,
+                                  },
+                          })
+                        }
+                      />
+                      <small>
+                        Optional. Leave blank for no preference; zero means free
+                        events.
+                      </small>
+                    </label>
+                    <label className="ob-field">
+                      Budget currency
+                      <input
+                        name="budgetCurrency"
+                        minLength={3}
+                        maxLength={3}
+                        pattern="[A-Za-z]{3}"
+                        value={budgetCurrency}
+                        onChange={(e) => {
+                          setBudgetCurrency(e.target.value.toUpperCase());
+                          if (profile.preferences.maxPrice)
+                            update("preferences", {
+                              ...profile.preferences,
+                              maxPrice: {
+                                ...profile.preferences.maxPrice,
+                                currency: e.target.value.toUpperCase(),
+                              },
+                            });
+                        }}
+                      />
+                    </label>
+                  </div>
                   {choices("goals", "Your goals", [
                     "Learning",
                     "Networking",
@@ -787,6 +905,7 @@ export function Onboarding({ person, saveCv, onComplete, logout }: Props) {
                     "hackathon",
                     "conference",
                     "meetup",
+                    "workshop",
                     "festival",
                   ])}
                   {choices("formats", "Preferred formats", [

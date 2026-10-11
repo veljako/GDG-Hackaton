@@ -12,15 +12,21 @@ from filelock import FileLock
 from langchain_core.embeddings import Embeddings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from contracts import RevisionConflict, canonical_city, validate_id, validate_event_constraints
+from contracts import RevisionConflict, canonical_city, validate_id, validate_event_constraints, normalize_event_constraints
 from embeddings import embedding_model_id, validate_vector
 from event_candidate_finder import seniority_bucket
 from extractors import CvDict, EventDict, normalize_cv_dict
 
 UNKNOWN = "unknown"
-RECIPE = "matching-narrative-v2"
+RECIPE = "matching-narrative-v3"
 _MATCHING_FIELDS = ("candidate_id", "current_role", "education", "skills", "general_description",
-                    "location", "status", "birth_year", "experience_level")
+                    "location", "status", "birth_year", "experience_level", "learning_skills",
+                    "interests", "roles", "preferences", "country", "birth_date")
+_EVENT_FIELDS = ("name", "event_type", "short_description", "location", "remote", "seniority",
+                 "skills", "criteria_version", "format", "topics", "taught_skills", "required_skills",
+                 "goals", "roles", "levels", "seniorities", "statuses", "min_age", "max_age",
+                 "min_birth_year", "max_birth_year", "country", "languages", "price",
+                 "date", "end_date", "deadline", "status")
 
 
 def city_key(location: Optional[str]) -> str:
@@ -46,6 +52,14 @@ def candidate_narrative(cv: CvDict) -> str:
         parts.append(f"Education: {', '.join(schools)}.")
     if cv.get("skills"):
         parts.append(f"Skills: {', '.join(cv['skills'])}.")
+    for field, label in (("learning_skills", "Wants to learn"), ("interests", "Interests"), ("roles", "Preferred roles")):
+        if cv.get(field):
+            parts.append(f"{label}: {', '.join(cv[field])}.")
+    preferences = cv.get("preferences") or {}
+    for field in ("goals", "kinds", "formats", "level"):
+        value = preferences.get(field)
+        if value:
+            parts.append(f"Preferred {field}: {', '.join(value) if isinstance(value, list) else value}.")
     if cv.get("status"):
         parts.append(f"Current status: {cv['status']}.")
     if cv.get("general_description"):
@@ -58,9 +72,19 @@ def candidate_narrative(cv: CvDict) -> str:
 def event_narrative(event: EventDict) -> str:
     parts = []
     if event.get("seniority"):
-        parts.append(f"The ideal candidate is a {event['seniority']} professional.")
+        parts.append(f"Relevant seniority: {event['seniority']}.")
     if event.get("skills"):
-        parts.append(f"They are skilled in {', '.join(event['skills'])}.")
+        parts.append(f"Participants practice and use {', '.join(event['skills'])}.")
+    for field, label in (("taught_skills", "Participants learn"), ("topics", "Topics"), ("goals", "Participant goals"), ("roles", "Relevant roles"), ("levels", "Relevant levels")):
+        if event.get(field):
+            parts.append(f"{label}: {', '.join(event[field])}.")
+    for field, label in (("format", "Format"), ("country", "Country"), ("languages", "Languages")):
+        value = event.get(field)
+        if value:
+            parts.append(f"{label}: {', '.join(value) if isinstance(value, list) else value}.")
+    price = event.get("price")
+    if isinstance(price, dict) and price.get("amount") is not None and price.get("currency"):
+        parts.append(f"Price: {price['amount']} {price['currency']}.")
     if event.get("name"):
         parts.append(f"They will take part in the {event.get('event_type') or 'event'} {event['name']}.")
     if event.get("short_description"):
@@ -250,10 +274,12 @@ class MatchmakingStore:
 
     def upsert_event(self, event: EventDict, *, expected_source_hash: Optional[str] = None) -> str:
         validate_event_constraints(event)
+        event = normalize_event_constraints(event)
         event_id = validate_id(event.get("event_id") or event_id_for(event))
-        stored = {key: event.get(key) for key in ("name", "event_type", "short_description", "location",
-                  "remote", "seniority", "skills", "min_birth_year", "max_birth_year")}
+        stored = {key: event.get(key) for key in _EVENT_FIELDS}
         stored["event_id"] = event_id
+        if stored.get("remote") is None:
+            stored.pop("remote", None)
         revision = _hash(stored)
         def current_hash():
             result = self.events.get(ids=[event_id], include=["metadatas"])

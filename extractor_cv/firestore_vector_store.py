@@ -10,9 +10,9 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.vector import Vector
 from google.cloud.firestore_v1.base_vector_query import DistanceMeasure
 from google.cloud.firestore_v1.base_query import FieldFilter, And, Or
-from contracts import RevisionConflict, validate_id, validate_event_constraints
+from contracts import RevisionConflict, validate_id, validate_event_constraints, normalize_event_constraints
 from embeddings import embedding_model_id, validate_vector
-from vector_store import MatchmakingStore, RECIPE, _hash, candidate_narrative, event_narrative, event_id_for, city_key
+from vector_store import MatchmakingStore, RECIPE, _EVENT_FIELDS, _hash, candidate_narrative, event_narrative, event_id_for, city_key
 
 
 class FirestoreMatchmakingStore:
@@ -80,7 +80,7 @@ class FirestoreMatchmakingStore:
 
     def _active(self, collection, kind, identity):
         row = self._read(collection, identity)
-        if row.get('deleted') or row.get('model') != self.contract['model'] or not self._fresh(kind, identity, row.get('source_markers', {})):
+        if row.get('deleted') or any(row.get(field) != value for field, value in self.contract.items()) or not self._fresh(kind, identity, row.get('source_markers', {})):
             return None
         return row or None
 
@@ -136,10 +136,12 @@ class FirestoreMatchmakingStore:
 
     def upsert_event(self, event, *, expected_source_hash=None):
         validate_event_constraints(event)
+        event = normalize_event_constraints(event)
         identity = validate_id(event.get('event_id') or event_id_for(event))
-        payload = {key: event.get(key) for key in ('name','event_type','short_description','location','remote','seniority','skills','min_birth_year','max_birth_year')}
+        payload = {key: event.get(key) for key in _EVENT_FIELDS}
         payload['event_id'] = identity
-        payload['remote'] = bool(event.get('remote', False))
+        if payload.get('remote') is None:
+            payload.pop('remote', None)
         markers = self._markers(event)
         revision = _hash({'payload': payload, 'markers': markers})
         metadata = {'event_id': identity, 'event_type': payload.get('event_type') or 'event',

@@ -25,6 +25,15 @@ def cv_payload(**updates):
     return payload
 
 
+class CanonicalProfileTests(unittest.TestCase):
+    def test_matching_fields_survive_cv_normalization(self):
+        raw = cv_payload(learningSkills=["Rust"], country="Serbia", birth_date="2000-03-01", interests=["Robotics"], roles=["Designer"], preferences={"goals": ["learn"]}, bio="Canonical biography")
+        result = extractors.normalize_cv_dict(raw, "person", "canonical")
+        self.assertEqual(result["learning_skills"], ["Rust"])
+        for field in ("country", "birth_date", "interests", "roles", "preferences", "bio"):
+            self.assertEqual(result[field], raw[field])
+
+
 class Response:
     def __init__(self, status=200, payload=None, text="SYNTHETIC PRIVATE RESPONSE", raw_body=None, declared_length=True):
         self.status_code = status

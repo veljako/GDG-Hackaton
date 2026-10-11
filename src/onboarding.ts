@@ -5,14 +5,17 @@ export type ReviewedProfile = {
   last_name: string;
   title: string;
   city: string;
+  country: string;
   school: string;
   bio: string;
   skills: string[];
+  learningSkills: string[];
   interests: string[];
   roles: Person["roles"];
   experience: string;
   status: NonNullable<Person["status"]> | null;
   birth_year: number | null;
+  birth_date: string | null;
   experience_level: NonNullable<Person["experience_level"]> | null;
   education: NonNullable<Person["education"]>;
   work_experience: NonNullable<Person["work_experience"]>;
@@ -50,14 +53,17 @@ export function initialReviewedProfile(
     last_name: person.last_name ?? "",
     title: person.title === "Community member" ? "" : person.title,
     city: person.city,
+    country: person.country ?? "",
     school: person.school,
     bio: person.bio,
     skills: [...person.skills],
+    learningSkills: [...(person.learningSkills ?? [])],
     interests: [...person.interests],
     roles: [...person.roles],
     experience: person.experience,
     status: person.status ?? null,
     birth_year: person.birth_year ?? null,
+    birth_date: person.birth_date ?? null,
     experience_level: person.experience_level ?? null,
     education: structuredClone(person.education ?? []),
     work_experience: structuredClone(person.work_experience ?? []),
@@ -105,7 +111,7 @@ export function onboardingMissingFields(
     ["bio", "About you"],
   ] as const)
     if (!profile[key]?.trim()) missing.push(label);
-  if (!useful(profile.skills)) missing.push("Skills");
+  if (!useful(profile.skills) && !useful(profile.learningSkills)) missing.push("Skills");
   if (!useful(profile.interests)) missing.push("Interests");
   if (!useful(profile.roles)) missing.push("Event roles");
   if (!useful(profile.preferences?.goals)) missing.push("Goals");

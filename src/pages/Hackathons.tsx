@@ -24,6 +24,7 @@ import {
 } from "../components/ui";
 import { BrandMark, EventArt, TeamStatusBadge } from "../components/visuals";
 import { ApplyModal, PersonModal, CreateTeamModal } from "../components/forms";
+import { MatchingEventDetails } from "../components/MatchingEventDetails";
 import type { Person } from "../types";
 
 export function HackathonDetail() {
@@ -148,6 +149,7 @@ export function HackathonDetail() {
           {tab === "Overview" && (
             <div className="event-overview">
               <p>{event.description}</p>
+              <MatchingEventDetails event={event} />
               <h3>What to bring</h3>
               <p>
                 {hasTeams(event)
@@ -312,7 +314,14 @@ export function HackathonDetail() {
             </p>
             <div className="apply-details">
               <span>
-                Participation<strong>Free</strong>
+                Participation
+                <strong>
+                  {event.price
+                    ? event.price.amount === 0
+                      ? "Free"
+                      : `${event.price.amount} ${event.price.currency}`
+                    : "Not specified"}
+                </strong>
               </span>
               <span>
                 Confirmed people

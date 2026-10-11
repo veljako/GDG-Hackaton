@@ -18,8 +18,8 @@ class EmbeddingJobs:
         if kind not in ('candidate', 'event') or not isinstance(payload, dict):
             raise ValueError('Invalid embedding job.')
         identity = validate_id(payload.get('candidate_id' if kind == 'candidate' else 'event_id'))
-        allowed = ({'candidate_id','current_role','education','skills','general_description','location','status','birth_year','experience_level'}
-            if kind == 'candidate' else {'event_id','name','event_type','short_description','skills','location','remote','seniority'})
+        from vector_store import _MATCHING_FIELDS, _EVENT_FIELDS
+        allowed = set(_MATCHING_FIELDS if kind == 'candidate' else _EVENT_FIELDS + ('event_id',))
         clean = {k: v for k, v in payload.items() if k in allowed | {'source_updated_at', 'source_storage_path'}}
         contract = getattr(self.store, 'contract', {})
         revision = hashlib.sha256(json.dumps({'kind':kind,'payload':clean,'contract':contract}, sort_keys=True).encode()).hexdigest()
@@ -31,7 +31,7 @@ class EmbeddingJobs:
             snap = ref.get(transaction=tx)
             if snap.exists:
                 return False
-            tx.set(ref, {'kind':kind,'identity':identity,'payload':clean,'revision':revision,'status':'pending',
+            tx.set(ref, {'kind':kind,'identity':identity,'payload':clean,'revision':revision,'contract':dict(contract),'status':'pending',
                 'attempts':0,'available_at':now,'created_at':now,'lease_until':0})
             return True
         created = add(self.db.transaction())
@@ -63,6 +63,8 @@ class EmbeddingJobs:
             return {'status':row['_skip'], **({'retry_after':row['retry_after']} if 'retry_after' in row else {})}
         status, error = 'completed', None
         try:
+            if row.get('contract') != getattr(self.store, 'contract', {}):
+                raise RevisionConflict('Embedding recipe or model contract changed.')
             identity, payload, kind = row['identity'], row['payload'], row['kind']
             markers = self.store._markers(payload)
             if not self.store._fresh(kind, identity, markers):

@@ -12,7 +12,7 @@ export function vectorIndexConfig(
 ): IndexConfig {
   z.number().int().min(1).max(2048).parse(dimensions);
   const indexes = [...existing.indexes];
-  for (const collectionGroup of ["userEmbeddings", "hackathonEmbeddings"]) {
+  for (const collectionGroup of ["userEmbeddings", "hackathonEmbeddings", "eventEmbeddings"]) {
     const index = {
       collectionGroup,
       queryScope: "COLLECTION",

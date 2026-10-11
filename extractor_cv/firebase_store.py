@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-from contracts import RevisionConflict, validate_id
+from contracts import RevisionConflict, validate_id, normalize_event_constraints
 from event_candidate_finder import seniority_bucket
 
 if TYPE_CHECKING:
@@ -28,16 +28,17 @@ WORKSPACE = os.environ.get("FIREBASE_WORKSPACE", "gdevPilots/main")
 
 _STATUSES = {"student": "Student", "employed": "Employed", "freelancer": "Freelancer"}
 _LEVELS = {"junior": "Junior", "mid": "Mid", "senior": "Senior"}
-_KINDS = {"hackathon", "conference", "meetup", "festival"}
-_APP_LEVELS = {"junior": "Beginner", "mid": "Intermediate", "senior": "Advanced"}
+_KINDS = {"hackathon", "conference", "meetup", "workshop", "festival"}
 _CONFIRMABLE_FIELDS = frozenset({
     "first_name", "last_name", "name", "location", "general_description", "skills",
     "status", "birth_year", "experience_level", "title", "school", "education",
+    "learningSkills", "country", "birth_date", "interests", "roles", "preferences",
 })
 _LEGACY_PRIVATE_FIELDS = ("cv_text", "source", "candidate_id")
 _EVENT_UPDATE_FIELDS = (
     "title", "description", "location", "format", "kind", "tags", "theme", "audience",
     "remote", "seniority", "min_birth_year", "max_birth_year", "short_description",
+    "matchingVersion", "topics", "country", "languages", "price", "eligibility",
 )
 _SCHOOL_RANK = {"university": 3, "college": 2, "high school": 1}
 _REFERENCE_YEAR = datetime.now(timezone.utc).year
@@ -107,6 +108,10 @@ def user_document(cv: CvDict) -> Tuple[str, Dict[str, Any]]:
         "title": _text(cv.get("current_role")), "education": _education_records(cv),
         "school": _primary_school(cv), "skills": _strings(cv.get("skills")),
         "location": _text(cv.get("location")),
+        "learningSkills": _strings(cv.get("learning_skills", cv.get("learningSkills"))),
+        "country": _text(cv.get("country")), "birth_date": cv.get("birth_date"),
+        "interests": _strings(cv.get("interests")), "roles": _strings(cv.get("roles")),
+        "preferences": cv.get("preferences"),
         "general_description": _text(cv.get("general_description"), 10000),
         "status": _STATUSES.get(_text(cv.get("status")).casefold()),
         "experience_level": _LEVELS.get(bucket),
@@ -114,7 +119,7 @@ def user_document(cv: CvDict) -> Tuple[str, Dict[str, Any]]:
     year = cv.get("birth_year")
     if isinstance(year, int) and not isinstance(year, bool) and 1900 <= year <= _REFERENCE_YEAR:
         document["birth_year"] = year
-    return doc_id, {key: value for key, value in document.items() if value is not None and value != "" and value != []}
+    return doc_id, {key: value for key, value in document.items() if value is not None and value != "" and value != [] and value != {}}
 
 
 def _canonical_user(user_id: str) -> str:
@@ -302,6 +307,7 @@ def event_document(event: EventDict) -> Tuple[str, Dict[str, Any]]:
         value = event.get(field)
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= _REFERENCE_YEAR):
             raise ValueError("Event birth-year criteria must be valid integer years")
+    event = normalize_event_constraints(event)
     kind = event.get("event_type")
     if not isinstance(kind, str) or kind not in _KINDS:
         raise ValueError("A supported event_type is required")
@@ -312,19 +318,25 @@ def event_document(event: EventDict) -> Tuple[str, Dict[str, Any]]:
     doc_id = validate_id(raw_id)
     skills = _strings(event.get("skills"))
     remote = bool(event.get("remote"))
-    bucket = seniority_bucket(_text(event.get("seniority")))
-    audience_level = _APP_LEVELS.get(bucket)
     location = _text(event.get("location")) or ("Remote" if remote else "Unknown")
     now = _now()
     today = now[:10]
     document: Dict[str, Any] = {
         "id": doc_id, "kind": kind, "registration": "review",
-        "audience": {"skills": skills, "goals": [], "roles": ["Participant"], "levels": [audience_level] if audience_level else []},
+        "audience": {"skills": skills, "taughtSkills": _strings(event.get("taught_skills")),
+            "goals": _strings(event.get("goals")), "roles": _strings(event.get("roles")),
+            "levels": _strings(event.get("levels"))},
         "title": _text(event.get("name")) or "Untitled event", "organizer": "Imported",
-        "date": today, "endDate": today, "deadline": today, "location": location,
-        "venue": "", "description": _text(event.get("short_description"), 10000),
+        "date": event.get("date") or today, "endDate": event.get("end_date") or event.get("date") or today,
+        "deadline": event.get("deadline") or event.get("date") or today, "location": location,
+        "venue": "", "description": _text(event.get("description") or event.get("short_description"), 10000),
         "theme": _text(event.get("name")) or kind, "tags": skills, "color": "blue",
-        "format": "Online" if remote else "In person", "capacity": 100,
+        "format": {"online":"Online", "in_person":"In person", "hybrid":"Hybrid"}.get(event.get("format")), "capacity": 100,
+        "matchingVersion": 2, "topics": _strings(event.get("topics")),
+        "country": _text(event.get("country")), "languages": _strings(event.get("languages")), "price": event.get("price"),
+        "eligibility": {target:(_strings(event.get(source)) if source in ("required_skills", "seniorities", "statuses") else event.get(source)) for source,target in
+            [("required_skills","requiredSkills"),("seniorities","seniorities"),("statuses","statuses"),
+             ("min_age","minAge"),("max_age","maxAge"),("min_birth_year","minBirthYear"),("max_birth_year","maxBirthYear")]},
         "minTeamSize": 1, "maxTeamSize": 4, "status": "draft", "schedule": [],
         "publishedAt": None, "remote": remote, "seniority": event.get("seniority"),
         "min_birth_year": event.get("min_birth_year"), "max_birth_year": event.get("max_birth_year"),

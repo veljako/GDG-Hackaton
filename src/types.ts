@@ -1,7 +1,19 @@
 export type Color = "blue" | "red" | "yellow" | "green";
 export type Role = "Participant" | "Mentor" | "Speaker" | "Judge";
 export type Admission = "pending" | "accepted" | "rejected";
-export type EventKind = "hackathon" | "conference" | "meetup" | "festival";
+export type EventKind = "hackathon" | "conference" | "meetup" | "workshop" | "festival";
+export type Seniority = "Junior" | "Mid" | "Senior";
+export type PersonStatus = "Student" | "Employed" | "Freelancer";
+export type Price = { amount: number; currency: string };
+export type Eligibility = {
+  requiredSkills?: string[];
+  seniorities?: Seniority[];
+  statuses?: PersonStatus[];
+  minAge?: number | null;
+  maxAge?: number | null;
+  minBirthYear?: number | null;
+  maxBirthYear?: number | null;
+};
 export type Goal =
   "Learning" | "Networking" | "Building" | "Career" | "Research";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
@@ -13,8 +25,13 @@ export type Preferences = {
   location: string;
   level?: Level;
   notify: boolean;
+  maxPrice?: Price | null;
 };
 export type Person = {
+  country?: string;
+  learningSkills?: string[];
+  /** Private: used only to check explicit age eligibility at the event date. */
+  birth_date?: string | null;
   onboarding?: {
     version: 1;
     status: "required" | "completed";
@@ -79,6 +96,12 @@ export type CvDocument = {
   extracted_at: string | null;
 };
 export type GEventsEvent = {
+  matchingVersion?: 2;
+  topics?: string[];
+  country?: string;
+  languages?: string[];
+  price?: Price | null;
+  eligibility?: Eligibility;
   organizationId?: string;
   createdBy?: string;
   publicationStatus?: "draft" | "pending" | "approved";
@@ -86,6 +109,7 @@ export type GEventsEvent = {
   registration?: "review" | "automatic";
   audience?: {
     skills: string[];
+    taughtSkills?: string[];
     goals: Goal[];
     roles: Role[];
     levels: Level[];
@@ -103,7 +127,8 @@ export type GEventsEvent = {
   theme: string;
   tags: string[];
   color: Color;
-  format: "In person" | "Hybrid" | "Online";
+  /** Unknown is allowed for imported drafts; publishing requires an explicit format. */
+  format: EventFormat | null;
   capacity: number;
   minTeamSize: number;
   maxTeamSize: number;

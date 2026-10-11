@@ -49,6 +49,7 @@ it("requires useful matching details while allowing unknown eligibility and empt
     roles: ["Participant"],
   });
   expect(onboardingMissingFields(profile)).toEqual([]);
+  expect(onboardingMissingFields({...profile,skills:[],learningSkills:["Python"]})).toEqual([]);
   expect(
     onboardingMissingFields({ ...profile, skills: ["  "], interests: [] }),
   ).toEqual(expect.arrayContaining(["Skills", "Interests"]));

@@ -1,9 +1,51 @@
 import { describe, it, expect } from "vitest";
 import { createSeedState } from "./seed";
-import { recommendEvent, searchEvents } from "./discovery";
+import { recommendEvent, recommendationsFor, searchEvents } from "./discovery";
+import type { GEventsEvent, Person } from "./types";
 
 const seed = () => createSeedState();
 describe("explainable event discovery", () => {
+  it("requires subject or skill relevance even when generic preferences agree", () => {
+    const state = seed();
+    const event: GEventsEvent = {
+      ...state.events[0],
+      id: "generic",
+      date: "2099-01-01",
+      endDate: "2099-01-01",
+      deadline: "2099-01-01",
+      status: "open" as const,
+      topics: [],
+      tags: [],
+      audience: {
+        skills: [],
+        goals: ["Learning" as const],
+        roles: ["Participant" as const],
+        levels: [],
+      },
+    };
+    state.events = [event];
+    const person: Person = {
+      ...state.people[0],
+      interests: ["Biology"],
+      skills: ["Microscopy"],
+      learningSkills: [],
+      roles: ["Participant" as const],
+      preferences: {
+        goals: ["Learning" as const],
+        kinds: [event.kind!],
+        formats: [event.format!],
+        level: "Beginner" as const,
+        notify: false,
+        location: "",
+      },
+    };
+    expect(recommendEvent(event, person).score).toBe(100);
+    expect(recommendationsFor(state, person)).toEqual([]);
+    event.audience = { ...event.audience!, skills: ["Microscopy"] };
+    expect(recommendationsFor(state, person).map((r) => r.eventId)).toEqual([
+      "generic",
+    ]);
+  });
   it("ranks shared topics and goals with concrete reasons", () => {
     const s = seed();
     const e = {

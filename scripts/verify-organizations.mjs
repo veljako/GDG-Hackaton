@@ -545,6 +545,9 @@ try {
       .getByRole("textbox", { name: "Event name" })
       .fill("New Draft");
     await permissions.page
+      .getByLabel("Format", { exact: true })
+      .selectOption("In person");
+    await permissions.page
       .getByRole("textbox", { name: "Theme", exact: true })
       .fill("Research");
     await permissions.page

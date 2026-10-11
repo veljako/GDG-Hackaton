@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { emptyWorkspace, entityCollections } from "./dataset";
 import { toUserDocument, fromUserDocument, type UserDocument } from "./users";
 import { requiresOnboarding, type OnboardingDraft } from "../src/onboarding";
+import { isDatabaseQuotaError, readOnlySnapshot } from "./firestore-read";
 
 export type CvExtractionGuard = {
   personId: string;
@@ -42,6 +43,8 @@ function validateDraftSource(
 export interface Repository {
   supportsCvExtractionGuard?: boolean;
   read(): Promise<DemoState>;
+  readFresh?(): Promise<DemoState>;
+  pendingMatchingPeople?(): Promise<DemoState["people"]>;
   update(
     fn: (state: DemoState) => Transition,
     guard?: CvExtractionGuard,
@@ -149,6 +152,11 @@ export class FileRepository implements Repository {
 }
 export class FirestoreRepository implements Repository {
   readonly supportsCvExtractionGuard = true;
+  private cached?: { state: DemoState; expires: number };
+  private reading?: Promise<DemoState>;
+  private generation = 0;
+  private quotaError?: unknown;
+  private quotaRetryAt = 0;
   constructor(
     private db: Firestore,
     private document = "gdevPilots/main",
@@ -248,22 +256,59 @@ export class FirestoreRepository implements Repository {
     };
   }
   async read(): Promise<DemoState> {
-    return this.db.runTransaction(
+    if (this.quotaRetryAt > Date.now()) throw this.quotaError;
+    if (this.cached && this.cached.expires > Date.now())
+      return structuredClone(this.cached.state);
+    if (this.reading) return structuredClone(await this.reading);
+    const generation = this.generation;
+    const reading = this.db.runTransaction(
       async (transaction) => (await this.load(transaction)).state,
-      { readOnly: true },
+      readOnlySnapshot(),
     );
+    this.reading = reading;
+    try {
+      const state = await reading;
+      if (generation === this.generation)
+        this.cached = {
+          state: structuredClone(state),
+          expires: Date.now() + 30000,
+        };
+      return structuredClone(state);
+    } catch (error) {
+      if (isDatabaseQuotaError(error)) {
+        this.quotaError = error;
+        this.quotaRetryAt = Date.now() + 300000;
+      }
+      throw error;
+    } finally {
+      if (this.reading === reading) this.reading = undefined;
+    }
+  }
+  async pendingMatchingPeople(): Promise<DemoState["people"]> {
+    if (this.quotaRetryAt > Date.now()) throw this.quotaError;
+    const found = await this.db
+      .collection(`${this.document}/users`)
+      .where("onboarding.matching_sync", "==", "pending")
+      .limit(20)
+      .get();
+    return found.docs.map((doc) =>
+      fromUserDocument(doc.data() as UserDocument, doc.id),
+    );
+  }
+  readFresh(): Promise<DemoState> {
+    this.generation++;
+    this.cached = undefined;
+    this.reading = undefined;
+    return this.read();
   }
   async loadOnboardingDraft(uid: string): Promise<OnboardingDraft | null> {
     if (!/^[\w-]{1,128}$/.test(uid)) throw Error("Invalid draft owner.");
-    return this.db.runTransaction(
-      async (tx) => {
-        const snap = await tx.get(
-          this.db.doc(`${this.document}/onboardingDrafts/${uid}`),
-        );
-        return snap.exists ? (snap.data() as OnboardingDraft) : null;
-      },
-      { readOnly: true },
-    );
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(
+        this.db.doc(`${this.document}/onboardingDrafts/${uid}`),
+      );
+      return snap.exists ? (snap.data() as OnboardingDraft) : null;
+    }, readOnlySnapshot());
   }
   async saveOnboardingDraft(
     uid: string,
@@ -312,95 +357,110 @@ export class FirestoreRepository implements Repository {
     fn: (state: DemoState) => Transition,
     guard?: CvExtractionGuard,
   ): Promise<Transition> {
-    return this.db.runTransaction(async (transaction) => {
-      const before = await this.load(transaction);
-      let extractionRecord: Record<string, unknown> | undefined;
-      if (guard) {
-        if (!guard.personId || guard.personId.includes("/"))
-          throw Error("Invalid extraction owner.");
-        const extraction = await transaction.get(
-          this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
-        );
-        const row = extraction.exists ? extraction.data() : undefined;
-        if (
-          !row ||
-          row.user_id !== guard.personId ||
-          row.storage_path !== guard.storagePath ||
-          row.extraction_hash !== guard.extractionHash ||
-          (row.source_updated_at ?? null) !== guard.sourceUpdatedAt
-        )
-          return {
-            state: before.state,
-            error: "Your extraction changed. Review it again.",
-          };
-        extractionRecord = row;
-        if (guard.completeOnboarding) {
-          const draft = await transaction.get(
-            this.db.doc(`${this.document}/onboardingDrafts/${guard.personId}`),
+    if (this.quotaRetryAt > Date.now()) throw this.quotaError;
+    // Never allow a pre-write in-flight read to populate the cache after a mutation.
+    this.generation++;
+    this.cached = undefined;
+    this.reading = undefined;
+    try {
+      return await this.db.runTransaction(async (transaction) => {
+        const before = await this.load(transaction);
+        let extractionRecord: Record<string, unknown> | undefined;
+        if (guard) {
+          if (!guard.personId || guard.personId.includes("/"))
+            throw Error("Invalid extraction owner.");
+          const extraction = await transaction.get(
+            this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
           );
-          const saved = draft.exists ? (draft.data() as OnboardingDraft) : null;
+          const row = extraction.exists ? extraction.data() : undefined;
           if (
-            !saved ||
-            saved.version !== guard.completeOnboarding.draftVersion ||
-            saved.cv_path !== guard.storagePath ||
-            saved.extraction_hash !== guard.extractionHash ||
-            saved.expected_profile_updated_at !== guard.sourceUpdatedAt
+            !row ||
+            row.user_id !== guard.personId ||
+            row.storage_path !== guard.storagePath ||
+            row.extraction_hash !== guard.extractionHash ||
+            (row.source_updated_at ?? null) !== guard.sourceUpdatedAt
           )
             return {
               state: before.state,
-              error: "Your review changed. Reload it before finishing setup.",
+              error: "Your extraction changed. Review it again.",
             };
+          extractionRecord = row;
+          if (guard.completeOnboarding) {
+            const draft = await transaction.get(
+              this.db.doc(
+                `${this.document}/onboardingDrafts/${guard.personId}`,
+              ),
+            );
+            const saved = draft.exists
+              ? (draft.data() as OnboardingDraft)
+              : null;
+            if (
+              !saved ||
+              saved.version !== guard.completeOnboarding.draftVersion ||
+              saved.cv_path !== guard.storagePath ||
+              saved.extraction_hash !== guard.extractionHash ||
+              saved.expected_profile_updated_at !== guard.sourceUpdatedAt
+            )
+              return {
+                state: before.state,
+                error: "Your review changed. Reload it before finishing setup.",
+              };
+          }
         }
-      }
-      const result = fn(structuredClone(before.state));
-      if (result.error) return result;
-      const state = {
-        ...result.state,
-        currentPersonId: "",
-        mode: "attendee" as const,
-      };
-      delete state.recommendations;
-      const after = this.documents(state);
-      const changed = [...after].filter(
-        ([path, record]) =>
-          JSON.stringify(record) !== JSON.stringify(before.stored.get(path)),
-      );
-      const removed = [...before.stored.keys()].filter(
-        (path) => !after.has(path),
-      );
-      if (changed.length + removed.length > 450)
-        throw Error(
-          "Too many records for one pilot transaction. Split the import before continuing.",
+        const result = fn(structuredClone(before.state));
+        if (result.error) return result;
+        const state = {
+          ...result.state,
+          currentPersonId: "",
+          mode: "attendee" as const,
+        };
+        delete state.recommendations;
+        const after = this.documents(state);
+        const changed = [...after].filter(
+          ([path, record]) =>
+            JSON.stringify(record) !== JSON.stringify(before.stored.get(path)),
         );
-      if (before.legacy)
-        transaction.set(this.db.doc(`${this.document}/backups/legacy-v1`), {
-          payload: before.legacy,
-          migratedAt: new Date().toISOString(),
+        const removed = [...before.stored.keys()].filter(
+          (path) => !after.has(path),
+        );
+        if (changed.length + removed.length > 450)
+          throw Error(
+            "Too many records for one pilot transaction. Split the import before continuing.",
+          );
+        if (before.legacy)
+          transaction.set(this.db.doc(`${this.document}/backups/legacy-v1`), {
+            payload: before.legacy,
+            migratedAt: new Date().toISOString(),
+          });
+        for (const [path, record] of changed)
+          transaction.set(this.db.doc(path), record);
+        for (const path of removed) transaction.delete(this.db.doc(path));
+        if (guard?.completeOnboarding && extractionRecord) {
+          transaction.set(
+            this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
+            {
+              ...extractionRecord,
+              confirmed: true,
+              reviewed_profile_updated_at:
+                state.people.find((p) => p.id === guard.personId)?.updated_at ??
+                null,
+            },
+          );
+          transaction.delete(
+            this.db.doc(`${this.document}/onboardingDrafts/${guard.personId}`),
+          );
+        }
+        transaction.set(this.db.doc(this.document), {
+          schemaVersion: 3,
+          revision: before.revision + 1,
+          updatedAt: new Date().toISOString(),
         });
-      for (const [path, record] of changed)
-        transaction.set(this.db.doc(path), record);
-      for (const path of removed) transaction.delete(this.db.doc(path));
-      if (guard?.completeOnboarding && extractionRecord) {
-        transaction.set(
-          this.db.doc(`${this.document}/cvExtractions/${guard.personId}`),
-          {
-            ...extractionRecord,
-            confirmed: true,
-            reviewed_profile_updated_at:
-              state.people.find((p) => p.id === guard.personId)?.updated_at ??
-              null,
-          },
-        );
-        transaction.delete(
-          this.db.doc(`${this.document}/onboardingDrafts/${guard.personId}`),
-        );
-      }
-      transaction.set(this.db.doc(this.document), {
-        schemaVersion: 3,
-        revision: before.revision + 1,
-        updatedAt: new Date().toISOString(),
+        return { ...result, state };
       });
-      return { ...result, state };
-    });
+    } finally {
+      this.generation++;
+      this.cached = undefined;
+      this.reading = undefined;
+    }
   }
 }

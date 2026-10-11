@@ -34,11 +34,11 @@ export interface MatchingClient {
 }
 export async function queueMatchingSync(
   client: MatchingClient | undefined,
-  repository: { read(): Promise<DemoState> },
+  repository: { read(): Promise<DemoState>; readFresh?(): Promise<DemoState> },
   actor: string,
   includeEvents = false,
 ) {
-  const state = await repository.read();
+  const state = await (repository.readFresh?.() ?? repository.read());
   const current = state.people.find((p) => p.id === actor);
   if (current && requiresOnboarding(current) && !includeEvents)
     return { matching_sync: "deferred" as const };

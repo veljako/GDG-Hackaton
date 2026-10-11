@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Firestore, Transaction } from "firebase-admin/firestore";
+import { readOnlySnapshot } from "./firestore-read";
 import type {
   Organization,
   OrganizationInput,
@@ -257,7 +258,7 @@ export class FirestoreOrganizationStore implements OrganizationStore {
           organizations: organizations.filter((o): o is Organization => !!o),
         };
       },
-      { readOnly: true },
+      readOnlySnapshot(),
     );
   }
   async create(uid: string, input: OrganizationInput) {
@@ -291,7 +292,7 @@ export class FirestoreOrganizationStore implements OrganizationStore {
         );
         return found.docs.map((doc) => doc.data() as OrganizationMembership);
       },
-      { readOnly: true },
+      readOnlySnapshot(),
     );
   }
   async invite(

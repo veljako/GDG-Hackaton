@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, sep, extname } from "node:path";
 import { z } from "zod";
 import type { Repository } from "./repository";
+import { isDatabaseQuotaError } from "./firestore-read";
 import { execute, view, type Session } from "./service";
 import type { Person } from "../src/types";
 import type { CvStorage } from "./cv-storage";
@@ -613,6 +614,13 @@ export function createApi(options: ApiOptions) {
       }
       throw new ApiError(404, "Not found.");
     } catch (error) {
+      if (isDatabaseQuotaError(error)) {
+        response.setHeader("Retry-After", "300");
+        return send(response, 503, {
+          error:
+            "The database has reached its usage limit. Existing data is preserved; please try again later.",
+        });
+      }
       if (error instanceof OrganizationError)
         return send(response, error.status, { error: error.message });
       if (error instanceof MatchingRouteError)
@@ -633,11 +641,15 @@ export function createApi(options: ApiOptions) {
   // Retry the durable onboarding handoff independently of browser sessions or later profile edits.
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let retrying = false;
+  let retryAfter = 0;
   async function retryPendingMatching() {
-    if (retrying || !options.matchingClient) return;
+    if (retrying || !options.matchingClient || Date.now() < retryAfter) return;
     retrying = true;
     try {
-      const pending = (await options.repository.read()).people
+      const people = options.repository.pendingMatchingPeople
+        ? await options.repository.pendingMatchingPeople()
+        : (await options.repository.read()).people;
+      const pending = people
         .filter(
           (p) =>
             p.onboarding?.status === "completed" &&
@@ -650,8 +662,13 @@ export function createApi(options: ApiOptions) {
           options.matchingClient,
           person.id,
         );
-    } catch {
-      console.error("Pending profile matching will retry.");
+    } catch (error) {
+      if (isDatabaseQuotaError(error)) retryAfter = Date.now() + 300000;
+      console.error(
+        isDatabaseQuotaError(error)
+          ? "Firebase quota exceeded; pending matching paused for five minutes."
+          : "Pending profile matching will retry.",
+      );
     } finally {
       retrying = false;
     }

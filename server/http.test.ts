@@ -6,6 +6,8 @@ import type { Server } from "node:http";
 import { FileRepository } from "./repository";
 import { createApi } from "./http";
 import { execute } from "./service";
+import { FirestoreRepository } from "./repository";
+import type { Firestore } from "firebase-admin/firestore";
 
 const dirs: string[] = [];
 const servers: Server[] = [];
@@ -60,6 +62,27 @@ afterEach(async () => {
   );
 });
 describe("HTTP backend and persistence", () => {
+  it("returns a retryable quota error while health and auth configuration stay available", async () => {
+    const quota = Object.assign(new Error("8 RESOURCE_EXHAUSTED: Quota exceeded."), { code: 8 });
+    const repository = new FirestoreRepository({
+      runTransaction: async () => { throw quota; },
+    } as unknown as Firestore);
+    const server = createApi({
+      repository, mode: "firebase", publicConfig: { projectId: "quota-test" },
+      authenticate: async () => ({ uid: "existing-user" }),
+    });
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("No port");
+    const base = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(base + "/api/state", { headers: { Authorization: "Bearer test-token" } });
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("300");
+    expect((await response.json()).error).toMatch(/database.*usage limit/i);
+    expect((await fetch(base + "/api/health")).status).toBe(200);
+    expect((await fetch(base + "/api/config")).status).toBe(200);
+  });
   it("allows a trusted Firebase frontend to preflight and call the authenticated API", async () => {
     const origin = "https://gdg-hackathon-d0b85.web.app";
     const { base, request, login } = await setup(new Set([origin]));

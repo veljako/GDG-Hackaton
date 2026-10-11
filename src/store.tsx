@@ -135,7 +135,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     let timeout: ReturnType<typeof setTimeout>;
     const refresh = async () => {
       const current = generation.current;
-      if (!lock.current && !refreshLock.current) {
+      if (!document.hidden && !lock.current && !refreshLock.current) {
         refreshLock.current = true;
         setRefreshing(true);
         try {
@@ -150,9 +150,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           if (alive.current) setRefreshing(false);
         }
       }
-      if (!disposed) timeout = setTimeout(refresh, 2000);
+      if (!disposed) timeout = setTimeout(refresh, 15000);
     };
-    timeout = setTimeout(refresh, 2000);
+    timeout = setTimeout(refresh, 15000);
     return () => {
       disposed = true;
       clearTimeout(timeout);

@@ -103,7 +103,7 @@ export function matchingRoutes(
           pdf_base64: bytes.toString("base64"),
           storage_path: path,
         });
-        const current = (await repository.read()).people.find(
+        const current = (await (repository.readFresh?.() ?? repository.read())).people.find(
           (p) => p.id === person.id,
         );
         if (!profileSchema.safeParse(response.proposal).success)

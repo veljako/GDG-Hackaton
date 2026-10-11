@@ -13,7 +13,34 @@ import { view, execute } from "./service";
 function database(initial: Record<string, unknown> = {}) {
   const records = new Map(Object.entries(initial));
   const doc = (path: string) => ({ path, id: path.split("/").at(-1) });
-  const collection = (path: string) => ({ path, collection: true });
+  const collection = (path: string) => ({
+    path,
+    collection: true,
+    where: (field: string, _operator: string, value: unknown) => ({
+      limit: (count: number) => ({
+        get: async () => ({
+          docs: [...records.keys()]
+            .filter(
+              (key) =>
+                key.startsWith(path + "/") &&
+                key.split("/").length === path.split("/").length + 1,
+            )
+            .map((key) => snapshot(doc(key)))
+            .filter(
+              (row) =>
+                field
+                  .split(".")
+                  .reduce<unknown>(
+                    (current, key) =>
+                      (current as Record<string, unknown> | undefined)?.[key],
+                    row.data(),
+                  ) === value,
+            )
+            .slice(0, count),
+        }),
+      }),
+    }),
+  });
   const snapshot = (ref: ReturnType<typeof doc>) => ({
     ...ref,
     ref,

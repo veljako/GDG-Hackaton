@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { FieldValue, type Firestore } from "firebase-admin/firestore";
+import { readOnlySnapshot } from "./firestore-read";
 
 export type EmbeddingKind = "user" | "hackathon";
 const id = z
@@ -88,7 +89,7 @@ export class FirestoreEmbeddings {
           throw Error("Invalid user identity or non-hackathon source.");
         return { record, source_hash: sourceHash(record) };
       },
-      { readOnly: true },
+      readOnlySnapshot(),
     );
   }
 

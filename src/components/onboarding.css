@@ -462,9 +462,113 @@
   background: var(--blue);
   border-radius: 12px;
 }
-.ob-account .backend-google {
+.ob-account .ob-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 48px;
+  margin-top: 22px;
+  padding: 12px 18px;
+  border: 1px solid #747775;
+  border-radius: 24px;
+  background: #fff;
+  color: #1f1f1f;
+  font-family: "Roboto Variable", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.ob-google img {
+  display: block;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+.ob-account .ob-google:hover:not(:disabled) {
+  background: #f8faff;
+  box-shadow: 0 1px 3px #17243c18;
+}
+.ob-account .ob-google:active:not(:disabled) {
+  background: #eef3fc;
+}
+.registration-intent {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  margin: 24px 0 0;
+  min-width: 0;
+}
+.registration-intent legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.registration-intent label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 12px;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--canvas);
+  cursor: pointer;
+  min-width: 0;
+}
+.registration-intent label.is-selected {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+.registration-intent input {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 2px 0 0;
+}
+.registration-intent strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.registration-intent small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.registration-host-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ob-signin .ob-panel {
+  margin-top: 24px;
+}
+@media (max-width: 600px) {
+  .registration-intent {
+    grid-template-columns: 1fr;
+  }
+  .ob-signin .ob-panel {
+    margin-top: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-account .ob-google {
+    transition: none;
+  }
 }
 .ob-account .backend-brand {
   font-size: 22px;

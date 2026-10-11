@@ -31,6 +31,7 @@ const period = <
 export const eventSchema = z
   .object({
     kind: kind.optional(),
+    organizationId: id.optional(),
     registration: z.enum(["review", "automatic"]).optional(),
     audience: z
       .object({
@@ -143,7 +144,17 @@ export const actionSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("UPDATE_EVENT"),
       eventId: id,
-      changes: event.partial(),
+      changes: event.omit({ organizationId: true }).partial(),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal("SUBMIT_EVENT_FOR_APPROVAL"), eventId: id })
+    .strict(),
+  z
+    .object({
+      type: z.literal("REVIEW_EVENT_PUBLICATION"),
+      eventId: id,
+      decision: z.enum(["approve", "reject"]),
     })
     .strict(),
   z

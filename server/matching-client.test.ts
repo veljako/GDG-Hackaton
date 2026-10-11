@@ -40,6 +40,30 @@ describe("private matching client", () => {
     );
     expect(read).toHaveBeenCalledTimes(1);
   });
+  it("queues event snapshots for an unfinished organization actor while retaining the worker candidate gate", async () => {
+    const state = createSeedState();
+    state.people[0].onboarding = {
+      version: 1,
+      status: "required",
+      completed_at: null,
+    };
+    const call = vi.fn().mockResolvedValue({ results: [] });
+    expect(
+      await queueMatchingSync(
+        { call },
+        { read: async () => state },
+        state.people[0].id,
+        true,
+      ),
+    ).toEqual({ matching_sync: "queued" });
+    expect(call).toHaveBeenCalledWith(
+      "queue_sync",
+      state.people[0].id,
+      state,
+      {},
+    );
+    expect(state.people[0].onboarding.status).toBe("required");
+  });
   it("reports queue delivery failure without rejecting saved changes", async () => {
     const state = createSeedState();
     const call = vi.fn().mockRejectedValue(new Error("private credentials"));

@@ -11,6 +11,7 @@ import type { Repository } from "./repository";
 import { execute, view, type Session } from "./service";
 import type { Person } from "../src/types";
 import type { CvStorage } from "./cv-storage";
+import { OrganizationError, type OrganizationStore } from "./organizations";
 import { normalizePerson } from "../src/user-profile";
 import { matchingRoutes, MatchingRouteError } from "./matching-routes";
 import {
@@ -40,6 +41,7 @@ export type ApiOptions = {
   staticDirectory?: string;
   allowedOrigins?: Set<string>;
   matchingClient?: MatchingClient;
+  organizationStore?: OrganizationStore;
 };
 class ApiError extends Error {
   constructor(
@@ -53,6 +55,30 @@ const loginSchema = z
   .object({
     personId: z.string().min(1).max(128),
     mode: z.enum(["attendee", "organizer"]),
+  })
+  .strict();
+const organizationInputSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    website: z
+      .string()
+      .trim()
+      .max(300)
+      .refine((value) => {
+        if (!value) return true;
+        try {
+          const url = new URL(value);
+          return (
+            ["http:", "https:"].includes(url.protocol) &&
+            !url.username &&
+            !url.password
+          );
+        } catch {
+          return false;
+        }
+      }),
+    city: z.string().trim().min(1).max(100),
+    description: z.string().trim().min(1).max(1000),
   })
   .strict();
 async function body(request: IncomingMessage): Promise<unknown> {
@@ -105,7 +131,20 @@ export function createApi(options: ApiOptions) {
           "Your demo session expired. Choose a profile again.",
         );
       }
-      return stored.session;
+      const snapshot = await options.organizationStore?.snapshot(
+        stored.session.personId,
+      );
+      const person = (await options.repository.read()).people.find(
+        (p) => p.id === stored.session.personId,
+      );
+      return {
+        ...stored.session,
+        ...snapshot,
+        legacyOrganizer: stored.session.organizer,
+        organizer: stored.session.organizer || !!snapshot?.memberships.length,
+        identityEmail: person?.email ?? null,
+        identityEmailVerified: person?.email_verified === true,
+      };
     }
     if (!options.authenticate)
       throw new ApiError(503, "Firebase authentication is not configured.");
@@ -161,10 +200,16 @@ export function createApi(options: ApiOptions) {
         return { state };
       });
     }
-    const organizer = options.organizerUids?.has(identity.uid) ?? false;
+    const legacyOrganizer = options.organizerUids?.has(identity.uid) ?? false;
+    const snapshot = await options.organizationStore?.snapshot(identity.uid);
+    const organizer = legacyOrganizer || !!snapshot?.memberships.length;
     return {
       personId: identity.uid,
       organizer,
+      legacyOrganizer,
+      ...snapshot,
+      identityEmail: identity.email ?? null,
+      identityEmailVerified: identity.emailVerified === true,
       mode:
         organizer && url.searchParams.get("mode") === "organizer"
           ? "organizer"
@@ -257,7 +302,97 @@ export function createApi(options: ApiOptions) {
         return send(response, 200, {
           state: view(await options.repository.read(), session),
           organizer: session.organizer,
+          organizations: session.organizations ?? [],
+          memberships: session.memberships ?? [],
         });
+      }
+      if (
+        url.pathname === "/api/organizations" ||
+        url.pathname.startsWith("/api/organizations/")
+      ) {
+        const session = await authenticate(request, url);
+        const store = options.organizationStore;
+        if (!store)
+          throw new ApiError(503, "Organization setup is not configured yet.");
+        if (url.pathname === "/api/organizations" && request.method === "GET")
+          return send(response, 200, await store.snapshot(session.personId));
+        if (
+          url.pathname === "/api/organizations" &&
+          request.method === "POST"
+        ) {
+          const parsed = organizationInputSchema.safeParse(await body(request));
+          if (!parsed.success)
+            throw new ApiError(
+              400,
+              "Check the organization name, city, description, and website.",
+            );
+          return send(
+            response,
+            200,
+            await store.create(session.personId, parsed.data),
+          );
+        }
+        if (
+          url.pathname === "/api/organizations/join" &&
+          request.method === "POST"
+        ) {
+          const parsed = z
+            .object({ token: z.string().regex(/^[a-f0-9]{64}$/) })
+            .strict()
+            .safeParse(await body(request));
+          if (!parsed.success)
+            throw new ApiError(400, "This invitation is invalid.");
+          return send(
+            response,
+            200,
+            await store.join(
+              session.personId,
+              session.identityEmail ?? null,
+              session.identityEmailVerified === true,
+              parsed.data.token,
+            ),
+          );
+        }
+        const route = url.pathname.match(
+          /^\/api\/organizations\/([\w-]+)\/(members|invitations)$/,
+        );
+        if (route?.[2] === "members" && request.method === "GET") {
+          const memberships = await store.members(session.personId, route[1]);
+          const people = (await options.repository.read()).people;
+          return send(response, 200, {
+            members: memberships.map((m) => {
+              const person = people.find((p) => p.id === m.personId);
+              return {
+                ...m,
+                name: person?.name ?? "Organization member",
+                email: person?.email ?? null,
+              };
+            }),
+          });
+        }
+        if (route?.[2] === "invitations" && request.method === "POST") {
+          const parsed = z
+            .object({
+              email: z.string().trim().email().max(254),
+              role: z.enum(["admin", "member"]),
+            })
+            .strict()
+            .safeParse(await body(request));
+          if (!parsed.success)
+            throw new ApiError(
+              400,
+              "Enter a valid email and organization role.",
+            );
+          return send(response, 200, {
+            invitation: await store.invite(
+              session.personId,
+              route[1],
+              parsed.data.email,
+              parsed.data.role,
+            ),
+          });
+        }
+        throw new ApiError(404, "Not found.");
       }
       if (
         url.pathname.startsWith("/api/onboarding/") &&
@@ -422,13 +557,17 @@ export function createApi(options: ApiOptions) {
             : null;
         const sync =
           !result.error &&
-          ["UPDATE_PROFILE", "CREATE_EVENT", "UPDATE_EVENT"].includes(
-            String(actionType),
-          )
+          [
+            "UPDATE_PROFILE",
+            "CREATE_EVENT",
+            "UPDATE_EVENT",
+            "REVIEW_EVENT_PUBLICATION",
+          ].includes(String(actionType))
             ? await queueMatchingSync(
                 options.matchingClient,
                 options.repository,
                 session.personId,
+                actionType !== "UPDATE_PROFILE",
               )
             : {};
         return send(response, result.error ? 400 : 200, {
@@ -436,6 +575,8 @@ export function createApi(options: ApiOptions) {
           ...sync,
           state: view(result.state, session),
           organizer: session.organizer,
+          organizations: session.organizations ?? [],
+          memberships: session.memberships ?? [],
         });
       }
       if (
@@ -472,6 +613,8 @@ export function createApi(options: ApiOptions) {
       }
       throw new ApiError(404, "Not found.");
     } catch (error) {
+      if (error instanceof OrganizationError)
+        return send(response, error.status, { error: error.message });
       if (error instanceof MatchingRouteError)
         return send(response, error.status, { error: error.message });
       if (error instanceof MatchingUnavailable)

@@ -286,6 +286,20 @@ try {
       }),
     );
     await page.goto(base);
+    await expect(
+      page.getByRole("list", { name: "Setup progress" }),
+    ).toHaveCount(0);
+    await expect(page.locator(".registration-hint")).toHaveCount(0);
+    await expect(page.locator(".ob-google img")).toBeVisible();
+    expect(
+      await page
+        .locator(".ob-google img")
+        .evaluate((image) => image.complete && image.naturalWidth > 0),
+    ).toBe(true);
+    await page.screenshot({
+      path: `.runtime/onboarding/login-${width}.png`,
+      fullPage: true,
+    });
     await page
       .getByRole("button", { name: "New here? Create an account" })
       .click();
@@ -298,6 +312,9 @@ try {
       "minlength",
       "8",
     );
+    await expect(
+      page.getByRole("list", { name: "Setup progress" }),
+    ).toBeVisible();
     await page.screenshot({
       path: `.runtime/onboarding/account-${width}.png`,
       fullPage: true,
@@ -307,6 +324,32 @@ try {
       scroll: document.documentElement.scrollWidth,
     }));
     expect(size.scroll).toBeLessThanOrEqual(size.view);
+    await page
+      .getByRole("radio", { name: /Host with an organization/ })
+      .check();
+    await expect(
+      page.getByRole("list", { name: "Setup progress" }),
+    ).toContainText("Organization");
+    await expect(
+      page.getByRole("list", { name: "Setup progress" }),
+    ).not.toContainText("Your CV");
+    await expect(
+      page.getByText("A PDF up to 5 MiB and 20 pages is required.", {
+        exact: false,
+      }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: `.runtime/onboarding/organization-signup-${width}.png`,
+      fullPage: true,
+    });
+    await page
+      .getByRole("button", { name: "Already have an account? Sign in" })
+      .click();
+    await page.getByRole("button", { name: "Forgot password?" }).click();
+    await expect(
+      page.getByRole("list", { name: "Setup progress" }),
+    ).toHaveCount(0);
+    await expect(page.locator(".ob-google")).toHaveCount(0);
     console.log(
       `PASS ${width}px: account form, email/Google controls, password requirement, overflow (no Firebase account created)`,
     );

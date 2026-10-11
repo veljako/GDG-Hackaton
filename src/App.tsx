@@ -70,7 +70,16 @@ const titles: Record<string, string> = {
 };
 export default function App() {
   const { theme, toggleTheme } = useTheme();
-  const { state, me, run, backendMode, organizer, logout, busy } = useDemo();
+  const {
+    state,
+    me,
+    run,
+    backendMode,
+    organizer,
+    logout,
+    busy,
+    startOrganization,
+  } = useDemo();
   const navigate = useNavigate();
   const location = useLocation();
   const reduce = useReducedMotion();
@@ -148,6 +157,15 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <button
+            className="organizer-switch"
+            disabled={busy}
+            onClick={startOrganization}
+          >
+            <UsersThree size={20} />
+            <span>Organizations</span>
+            <ArrowRight size={16} />
+          </button>
           <button
             className={`organizer-switch ${state.mode === "organizer" ? "active" : ""}`}
             hidden={backendMode === "firebase" && !organizer}
@@ -291,6 +309,18 @@ export default function App() {
             <button onClick={() => navigate("/organizer")}>
               Manage events <ArrowRight size={16} />
             </button>
+            <button
+              disabled={busy}
+              onClick={async () => {
+                const result = await run(
+                  { type: "SET_MODE", mode: "attendee" },
+                  true,
+                );
+                if (!result.error) navigate("/");
+              }}
+            >
+              Attend events
+            </button>
           </div>
         )}
         <main id="main-content" tabIndex={-1} className="main-content">
@@ -387,6 +417,20 @@ export default function App() {
         >
           <div className="demo-controls">
             <div className="mode-picker">
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setSwitcher(false);
+                  startOrganization();
+                }}
+              >
+                <UsersThree size={24} />
+                <span>
+                  <strong>Organizations</strong>
+                  <small>Create or join a hosting team</small>
+                </span>
+                <ArrowRight size={20} />
+              </button>
               <button
                 className={state.mode === "attendee" ? "selected" : ""}
                 disabled={busy}

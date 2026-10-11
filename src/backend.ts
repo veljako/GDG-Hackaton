@@ -3,6 +3,12 @@ import type { Auth } from "firebase/auth";
 import { apiUrl } from "./api-url";
 import { migrateStorageKey } from "./storage";
 import type { OnboardingDraft, ReviewedProfile } from "./onboarding";
+import type {
+  OrganizationSnapshot,
+  OrganizationInput,
+  OrganizationMember,
+  OrganizationInvitation,
+} from "./organizations";
 export type OnboardingInput = {
   profile: Partial<ReviewedProfile>;
   step: "review" | "interests";
@@ -23,7 +29,46 @@ export type BackendConfig = {
   mode: "demo" | "firebase";
   firebase: Record<string, string> | null;
 };
-export type Snapshot = { state: DemoState; organizer: boolean };
+export type Snapshot = {
+  state: DemoState;
+  organizer: boolean;
+} & Partial<OrganizationSnapshot>;
+export const getOrganizations = () =>
+  request<OrganizationSnapshot>("organizations");
+export const createOrganization = (input: OrganizationInput) =>
+  request<OrganizationSnapshot>("organizations", input);
+export const joinOrganization = (token: string) =>
+  request<OrganizationSnapshot>("organizations/join", { token });
+export const getOrganizationMembers = (id: string) =>
+  request<{ members: OrganizationMember[] }>(
+    `organizations/${encodeURIComponent(id)}/members`,
+  );
+export const inviteOrganizationMember = (
+  id: string,
+  email: string,
+  role: "admin" | "member",
+) =>
+  request<{ invitation: OrganizationInvitation }>(
+    `organizations/${encodeURIComponent(id)}/invitations`,
+    { email, role },
+  );
+export async function sendVerificationEmail() {
+  if (!auth?.currentUser) throw Error("Sign in first.");
+  try {
+    await (
+      await import("firebase/auth")
+    ).sendEmailVerification(auth.currentUser);
+  } catch (error) {
+    throw authError(error);
+  }
+}
+export async function refreshEmailVerification() {
+  if (auth?.currentUser) {
+    await auth.currentUser.reload();
+    await auth.currentUser.getIdToken(true);
+  }
+  return getSnapshot();
+}
 export type SemanticResponse = {
   source?: string;
   results: { eventId?: string; personId?: string; reasons: string[] }[];
@@ -325,7 +370,7 @@ export async function getSnapshot(): Promise<Snapshot> {
   });
   if (result.error) throw new BackendError(result.error, 400);
   sessionStorage.removeItem(pendingNamesKey);
-  return { state: result.state, organizer: result.organizer };
+  return { ...snapshot, state: result.state, organizer: result.organizer };
 }
 export const sendAction = (action: Action) =>
   request<Transition & { organizer: boolean }>(`actions?mode=${mode}`, action);

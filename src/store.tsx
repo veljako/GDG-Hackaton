@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import type { Action, DemoState, Transition } from "./types";
 import {
@@ -31,6 +31,12 @@ import "./backend.css";
 import { RegistrationForm } from "./components/RegistrationForm";
 import { Onboarding } from "./components/Onboarding";
 import { requiresOnboarding } from "./onboarding";
+import type { Organization, OrganizationMembership } from "./organizations";
+import { OrganizationSetup } from "./components/OrganizationSetup";
+const organizationIntentKey = "gevents-organization-intent";
+function storedOrganizationIntent(): string | null {
+  return sessionStorage.getItem(organizationIntentKey);
+}
 type Context = {
   state: DemoState;
   run: (action: Action, silent?: boolean) => Promise<Transition>;
@@ -40,10 +46,20 @@ type Context = {
   logout: () => Promise<void>;
   saveCv: (file: File | null) => Promise<boolean>;
   refresh: () => Promise<void>;
+  organizations: Organization[];
+  memberships: OrganizationMembership[];
+  startOrganization: () => void;
+  openWorkspace: () => Promise<void>;
 };
 const DemoContext = createContext<Context | null>(null);
 export function DemoProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const invite = new URLSearchParams(location.search).get("invite") ?? "";
+  const organizationRoute = location.pathname === "/organizations";
+  const [organizationIntent, setOrganizationIntent] = useState(
+    storedOrganizationIntent,
+  );
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -176,7 +192,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
             state: previous.state,
             error: "Your account changed while this request was completing.",
           };
-        accept({ state: result.state, organizer: result.organizer });
+        accept({
+          ...previous,
+          ...result,
+          state: result.state,
+          organizer: result.organizer,
+        });
         if (!silent && result.message) toast.success(result.message);
         return result;
       } catch (e) {
@@ -222,14 +243,39 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       }
     }
   }
-  async function login(operation: () => Promise<Snapshot> = signIn) {
+  async function login(
+    operation: () => Promise<Snapshot> = signIn,
+    intent?: "attendee" | "organization",
+  ) {
     if (busy) return;
+    if (intent === "organization" || organizationRoute) {
+      sessionStorage.setItem(organizationIntentKey, "pending");
+      setOrganizationIntent("pending");
+    } else if (intent === "attendee") {
+      sessionStorage.removeItem(organizationIntentKey);
+      setOrganizationIntent(null);
+    }
     const current = ++generation.current;
     setBusy(true);
     setError("");
     try {
       const next = await operation();
-      if (alive.current && current === generation.current) accept(next);
+      if (alive.current && current === generation.current) {
+        if (storedOrganizationIntent() === "pending") {
+          sessionStorage.setItem(
+            organizationIntentKey,
+            next.state.currentPersonId,
+          );
+          setOrganizationIntent(next.state.currentPersonId);
+          navigate(
+            invite
+              ? `/organizations?invite=${encodeURIComponent(invite)}`
+              : "/organizations",
+            { replace: true },
+          );
+        }
+        accept(next);
+      }
     } catch (e) {
       if (alive.current && current === generation.current)
         setError((e as Error).message);
@@ -238,6 +284,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     }
   }
   async function logout() {
+    sessionStorage.removeItem(organizationIntentKey);
+    setOrganizationIntent(null);
     const current = ++generation.current;
     lock.current = false;
     setBusy(true);
@@ -269,6 +317,20 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       if (alive.current) setRefreshing(false);
     }
   }
+  function startOrganization() {
+    const uid = stateRef.current?.state.currentPersonId ?? "pending";
+    sessionStorage.setItem(organizationIntentKey, uid);
+    setOrganizationIntent(uid);
+    navigate("/organizations");
+  }
+  async function openWorkspace() {
+    const result = await run({ type: "SET_MODE", mode: "organizer" }, true);
+    if (!result.error) {
+      sessionStorage.removeItem(organizationIntentKey);
+      setOrganizationIntent(null);
+      navigate("/organizer");
+    } else throw Error(result.error);
+  }
   if (!snapshot && !loading && config?.mode === "firebase")
     return (
       <main className="backend-gate">
@@ -276,18 +338,22 @@ export function DemoProvider({ children }: { children: ReactNode }) {
           busy={busy}
           error={error}
           signedIn={hasFirebaseSession()}
-          onGoogle={() => login()}
-          onEmail={(email, password) =>
-            login(() => signInWithEmail(email, password))
+          initialIntent={organizationRoute ? "organization" : undefined}
+          onOrganizationStart={startOrganization}
+          onGoogle={(intent) => login(signIn, intent)}
+          onEmail={(email, password, intent) =>
+            login(() => signInWithEmail(email, password), intent)
           }
-          onRegister={(first_name, last_name, email, password) =>
-            login(() =>
-              register(
-                `${first_name.trim()} ${last_name.trim()}`,
-                email,
-                password,
-                { first_name, last_name },
-              ),
+          onRegister={(first_name, last_name, email, password, intent) =>
+            login(
+              () =>
+                register(
+                  `${first_name.trim()} ${last_name.trim()}`,
+                  email,
+                  password,
+                  { first_name, last_name },
+                ),
+              intent,
             )
           }
           onRetry={() => login(getSnapshot)}
@@ -335,18 +401,52 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const currentPerson = snapshot.state.people.find(
     (person) => person.id === snapshot.state.currentPersonId,
   );
-  if (currentPerson && requiresOnboarding(currentPerson))
+  if (
+    currentPerson &&
+    (organizationRoute ||
+      organizationIntent === currentPerson.id ||
+      organizationIntent === "pending")
+  )
     return (
-      <Onboarding
-        key={currentPerson.id}
+      <OrganizationSetup
         person={currentPerson}
-        saveCv={saveCv}
-        logout={logout}
-        onComplete={(next) => {
-          ++generation.current;
-          accept(next);
+        invite={invite}
+        organizations={snapshot.organizations ?? []}
+        memberships={snapshot.memberships ?? []}
+        onRefresh={retry}
+        onWorkspace={openWorkspace}
+        onAttendee={async () => {
+          sessionStorage.removeItem(organizationIntentKey);
+          setOrganizationIntent(null);
+          await run({ type: "SET_MODE", mode: "attendee" }, true);
+          navigate("/");
         }}
+        logout={logout}
       />
+    );
+  if (
+    currentPerson &&
+    requiresOnboarding(currentPerson) &&
+    snapshot.state.mode !== "organizer"
+  )
+    return (
+      <>
+        <div className="organization-onboarding-link">
+          <button onClick={startOrganization}>
+            Host an event with your organization
+          </button>
+        </div>
+        <Onboarding
+          key={currentPerson.id}
+          person={currentPerson}
+          saveCv={saveCv}
+          logout={logout}
+          onComplete={(next) => {
+            ++generation.current;
+            accept(next);
+          }}
+        />
+      </>
     );
   return (
     <DemoContext.Provider
@@ -359,6 +459,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         logout,
         saveCv,
         refresh: retry,
+        organizations: snapshot.organizations ?? [],
+        memberships: snapshot.memberships ?? [],
+        startOrganization,
+        openWorkspace,
       }}
     >
       {error && (

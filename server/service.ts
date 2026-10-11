@@ -1,15 +1,21 @@
 import { transition } from "../src/domain";
-import type { DemoState, Transition } from "../src/types";
+import type { Action, DemoState, Transition } from "../src/types";
 import { actionSchema } from "./schema";
 import { recommendationsFor, registrationOpen } from "../src/discovery";
 import { publicPerson } from "./users";
 import { requiresOnboarding } from "../src/onboarding";
+import type { OrganizationSnapshot } from "../src/organizations";
 
 export type Session = {
   personId: string;
   organizer: boolean;
   mode: "attendee" | "organizer";
   demo: boolean;
+  legacyOrganizer?: boolean;
+  organizations?: OrganizationSnapshot["organizations"];
+  memberships?: OrganizationSnapshot["memberships"];
+  identityEmail?: string | null;
+  identityEmailVerified?: boolean;
 };
 export function execute(
   state: DemoState,
@@ -20,22 +26,141 @@ export function execute(
   const parsed = actionSchema.safeParse(input);
   if (!parsed.success)
     return fail("Invalid request. Check the fields and try again.");
-  const action = parsed.data;
+  let action: Action = parsed.data;
+  const management = [
+    "CREATE_EVENT",
+    "UPDATE_EVENT",
+    "SUBMIT_EVENT_FOR_APPROVAL",
+    "REVIEW_EVENT_PUBLICATION",
+    "REVIEW_APPLICATION",
+  ];
+  const asOrganizer = session.organizer && session.mode === "organizer";
+  const legacy =
+    session.legacyOrganizer ??
+    (session.organizer && !session.memberships?.length);
   if (!state.people.some((p) => p.id === session.personId))
     return fail("Profile not found. Sign in again.");
   if (
     requiresOnboarding(state.people.find((p) => p.id === session.personId)!) &&
-    action.type !== "UPDATE_PROFILE"
+    action.type !== "UPDATE_PROFILE" &&
+    !(
+      asOrganizer &&
+      (legacy || session.memberships?.length) &&
+      management.includes(action.type)
+    )
   )
     return fail("Finish your profile setup before joining the community.");
-  const asOrganizer = session.organizer && session.mode === "organizer";
-  if (
-    ["CREATE_EVENT", "UPDATE_EVENT", "REVIEW_APPLICATION", "RESET"].includes(
-      action.type,
-    ) &&
-    !asOrganizer
-  )
+  if ([...management, "RESET"].includes(action.type) && !asOrganizer)
     return fail("Only an organizer can perform this action.");
+  const membership = (organizationId: string | undefined) =>
+    session.memberships?.find(
+      (m) =>
+        m.organizationId === organizationId && m.personId === session.personId,
+    );
+  if (action.type === "CREATE_EVENT") {
+    const organizationId =
+      action.event.organizationId ??
+      (session.memberships?.length === 1
+        ? session.memberships[0].organizationId
+        : undefined);
+    if (organizationId) {
+      const member = membership(organizationId);
+      const organization = session.organizations?.find(
+        (o) => o.id === organizationId,
+      );
+      if (!member || !organization)
+        return fail("Choose an organization you belong to.");
+      Object.assign(action.event, {
+        organizationId,
+        organizer: organization.name,
+        createdBy: session.personId,
+        publicationStatus:
+          member.role === "admin" && action.event.status !== "draft"
+            ? "approved"
+            : "draft",
+      });
+      if (member.role !== "admin") action.event.status = "draft";
+    } else if (!legacy)
+      return fail("Choose an organization to host this event.");
+  }
+  if (
+    [
+      "UPDATE_EVENT",
+      "SUBMIT_EVENT_FOR_APPROVAL",
+      "REVIEW_EVENT_PUBLICATION",
+      "REVIEW_APPLICATION",
+    ].includes(action.type)
+  ) {
+    const applicationId =
+      action.type === "REVIEW_APPLICATION" ? action.applicationId : undefined;
+    const eventId =
+      "eventId" in action
+        ? action.eventId
+        : state.applications.find((a) => a.id === applicationId)?.eventId;
+    const event = state.events.find((e) => e.id === eventId);
+    if (!event) return fail("Event not found.");
+    const member = membership(event.organizationId);
+    if (event.organizationId ? !member : !legacy)
+      return fail("You cannot manage another organization's event.");
+    if (
+      action.type === "REVIEW_APPLICATION" &&
+      event.organizationId &&
+      member?.role !== "admin"
+    )
+      return fail("Only organization admins can review applications.");
+    if (action.type === "UPDATE_EVENT" && event.organizationId) {
+      if (
+        member?.role !== "admin" &&
+        (event.createdBy !== session.personId ||
+          event.status !== "draft" ||
+          event.publishedAt ||
+          event.publicationStatus === "pending")
+      )
+        return fail("Members can edit only their own unpublished drafts.");
+      if (
+        member?.role !== "admin" &&
+        action.changes.status &&
+        action.changes.status !== "draft"
+      )
+        return fail("An organization admin must approve publication.");
+      action.changes.organizer =
+        session.organizations?.find((o) => o.id === event.organizationId)
+          ?.name ?? event.organizer;
+    }
+    if (action.type === "SUBMIT_EVENT_FOR_APPROVAL") {
+      if (
+        !event.organizationId ||
+        event.createdBy !== session.personId ||
+        event.status !== "draft" ||
+        event.publishedAt ||
+        event.publicationStatus === "pending"
+      )
+        return fail("Submit your own unpublished draft for approval.");
+      const next = structuredClone(state);
+      next.events.find((e) => e.id === event.id)!.publicationStatus = "pending";
+      return { state: next, message: "Event submitted for admin approval." };
+    }
+    if (action.type === "REVIEW_EVENT_PUBLICATION") {
+      if (
+        !event.organizationId ||
+        member?.role !== "admin" ||
+        event.status !== "draft" ||
+        event.publishedAt
+      )
+        return fail(
+          "Only an organization admin can approve an unpublished event.",
+        );
+      action = {
+        type: "UPDATE_EVENT",
+        eventId: event.id,
+        changes: {
+          status: action.decision === "approve" ? "open" : "draft",
+          publicationStatus:
+            action.decision === "approve" ? "approved" : "draft",
+        },
+      };
+    }
+  }
   if (action.type === "RESET" && !session.demo)
     return fail("Reset is available only for the local demo.");
   if ("fromId" in action && action.fromId !== session.personId)
@@ -123,10 +248,13 @@ export function execute(
       action.type === "CREATE_EVENT" ? result.createdId : action.eventId;
     const event = result.state.events.find((e) => e.id === eventId);
     const previous = state.events.find((e) => e.id === eventId);
-    if (event)
+    if (event) {
+      if (event.organizationId && event.status === "open")
+        event.publicationStatus = "approved";
       Object.assign(event, {
         updated_at: nextRevision(Reflect.get(previous ?? {}, "updated_at")),
       });
+    }
     if (
       event &&
       previous &&
@@ -198,6 +326,39 @@ export function view(state: DemoState, session: Session): DemoState {
     session.organizer && session.mode === "organizer"
       ? "organizer"
       : "attendee";
+  if (result.mode === "organizer") {
+    const legacy =
+      session.legacyOrganizer ??
+      (session.organizer && !session.memberships?.length);
+    const organizationIds = new Set(
+      session.memberships?.map((m) => m.organizationId),
+    );
+    result.events = result.events.filter((e) =>
+      e.organizationId ? organizationIds.has(e.organizationId) : legacy,
+    );
+    const eventIds = new Set(result.events.map((e) => e.id));
+    const adminIds = new Set(
+      session.memberships
+        ?.filter((m) => m.role === "admin")
+        .map((m) => m.organizationId),
+    );
+    const reviewedIds = new Set(
+      result.events
+        .filter((e) =>
+          e.organizationId ? adminIds.has(e.organizationId) : legacy,
+        )
+        .map((e) => e.id),
+    );
+    result.teams = result.teams.filter((t) => eventIds.has(t.eventId));
+    result.applications = result.applications.filter(
+      (a) =>
+        reviewedIds.has(a.eventId) ||
+        (a.personId === session.personId && eventIds.has(a.eventId)),
+    );
+    result.invitations = result.invitations.filter((i) =>
+      result.teams.some((t) => t.id === i.teamId),
+    );
+  }
   result.notifications = result.notifications.filter(
     (n) => n.personId === session.personId,
   );

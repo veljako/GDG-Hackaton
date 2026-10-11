@@ -5,6 +5,10 @@ import { createApi } from "./http";
 import { FileRepository, FirestoreRepository } from "./repository";
 import { FileCvStorage, CloudCvStorage } from "./cv-storage";
 import { HttpMatchingClient } from "./matching-client";
+import {
+  FileOrganizationStore,
+  FirestoreOrganizationStore,
+} from "./organizations";
 
 if (existsSync(".env.server.local")) loadEnvFile(".env.server.local");
 // Existing deployments may still provide the previous environment prefix.
@@ -40,6 +44,7 @@ if (mode === "firebase") {
   options = {
     mode,
     repository: new FirestoreRepository(getFirestore()),
+    organizationStore: new FirestoreOrganizationStore(getFirestore()),
     publicConfig: { projectId, apiKey, authDomain, appId },
     ...(process.env.FIREBASE_STORAGE_BUCKET
       ? {
@@ -75,6 +80,12 @@ if (mode === "firebase") {
     mode,
     repository: new FileRepository(
       resolve(process.env.GEVENTS_DATA_FILE ?? ".runtime/backend/state.json"),
+    ),
+    organizationStore: new FileOrganizationStore(
+      resolve(
+        process.env.GEVENTS_ORGANIZATIONS_FILE ??
+          ".runtime/backend/organizations.json",
+      ),
     ),
     publicConfig: null,
     cvStorage: new FileCvStorage(

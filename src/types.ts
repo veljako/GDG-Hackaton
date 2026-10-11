@@ -79,6 +79,9 @@ export type CvDocument = {
   extracted_at: string | null;
 };
 export type GEventsEvent = {
+  organizationId?: string;
+  createdBy?: string;
+  publicationStatus?: "draft" | "pending" | "approved";
   kind?: EventKind;
   registration?: "review" | "automatic";
   audience?: {
@@ -170,6 +173,12 @@ export type Action =
   | { type: "SET_MODE"; mode: "attendee" | "organizer" }
   | { type: "CREATE_EVENT"; event: Omit<Hackathon, "id"> }
   | { type: "UPDATE_EVENT"; eventId: string; changes: Partial<Hackathon> }
+  | { type: "SUBMIT_EVENT_FOR_APPROVAL"; eventId: string }
+  | {
+      type: "REVIEW_EVENT_PUBLICATION";
+      eventId: string;
+      decision: "approve" | "reject";
+    }
   | {
       type: "SUBMIT_APPLICATION";
       eventId: string;

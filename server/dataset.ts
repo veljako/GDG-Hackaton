@@ -79,7 +79,14 @@ const datasetSchema = z
   .object({
     version: z.literal(1),
     people: z.array(person),
-    events: z.array(eventSchema.extend({ id, publishedAt: short.optional() })),
+    events: z.array(
+      eventSchema.extend({
+        id,
+        publishedAt: short.optional(),
+        createdBy: id.optional(),
+        publicationStatus: z.enum(["draft", "pending", "approved"]).optional(),
+      }),
+    ),
     teams: z.array(
       z
         .object({

@@ -33,7 +33,7 @@ import type { EventKind, Goal, Level } from "../types";
 import { eventKinds, goals, levels, hasTeams } from "../discovery";
 
 export default function Organizer() {
-  const { state, run } = useDemo();
+  const { state, run, me, memberships, busy, startOrganization } = useDemo();
   const navigate = useNavigate();
   const [eventId, setEventId] = useState("gdg-belgrade");
   const [tab, setTab] = useState("Applications");
@@ -42,11 +42,31 @@ export default function Organizer() {
   const [review, setReview] = useState<Application | null>(null);
   const [edit, setEdit] = useState<Hackathon | "new" | null>(null);
   const event = state.events.find((e) => e.id === eventId) ?? state.events[0];
+  const organizationAdmin =
+    !event?.organizationId ||
+    memberships.some(
+      (m) =>
+        m.organizationId === event.organizationId &&
+        m.personId === me.id &&
+        m.role === "admin",
+    );
+  const mayEdit =
+    organizationAdmin ||
+    (event?.createdBy === me.id &&
+      event.status === "draft" &&
+      !event.publishedAt &&
+      event.publicationStatus !== "pending");
+  const maySubmit =
+    !!event?.organizationId &&
+    event.status === "draft" &&
+    !event.publishedAt &&
+    event.publicationStatus !== "pending" &&
+    event.createdBy === me.id;
   const applications = state.applications.filter(
     (a) => a.eventId === event?.id,
   );
   const teams = state.teams.filter((t) => t.eventId === event?.id);
-  const shown = applications.filter(
+  const shown = (organizationAdmin ? applications : []).filter(
     (a) =>
       (filter === "All" || a.status === filter.toLowerCase()) &&
       `${state.people.find((p) => p.id === a.personId)?.name} ${a.role}`
@@ -68,6 +88,11 @@ export default function Organizer() {
   if (!event)
     return (
       <>
+        <div className="organization-actions">
+          <Button variant="text" onClick={startOrganization}>
+            Organizations
+          </Button>
+        </div>
         <Empty
           title="Your first event starts here"
           description="Create a business, learning or science event and bring your community together."
@@ -84,9 +109,14 @@ export default function Organizer() {
         title="Bring good people together."
         description="A little organization. A lot of possibilities."
         action={
-          <Button icon={<Plus size={18} />} onClick={() => setEdit("new")}>
-            Create event
-          </Button>
+          <div className="organization-actions">
+            <Button variant="text" onClick={startOrganization}>
+              Organizations
+            </Button>
+            <Button icon={<Plus size={18} />} onClick={() => setEdit("new")}>
+              Create event
+            </Button>
+          </div>
         }
       />
       <div className="organizer-event-picker">
@@ -100,6 +130,11 @@ export default function Organizer() {
             {state.events.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.title}
+                {e.publicationStatus === "pending"
+                  ? " · Awaiting approval"
+                  : e.publicationStatus === "draft"
+                    ? " · Draft"
+                    : ""}
               </option>
             ))}
           </select>
@@ -115,6 +150,7 @@ export default function Organizer() {
           <Button
             variant="text"
             icon={<PencilSimple size={17} />}
+            disabled={!mayEdit}
             onClick={() => setEdit(event)}
           >
             Edit event
@@ -122,6 +158,75 @@ export default function Organizer() {
           <IconLink onClick={() => navigate(`/hackathons/${event.id}`)} />
         </div>
       </div>
+      {event.organizationId && (
+        <div className="organization-publication">
+          <Badge
+            color={
+              event.publicationStatus === "pending"
+                ? "yellow"
+                : event.publicationStatus === "approved"
+                  ? "green"
+                  : "neutral"
+            }
+          >
+            {event.publicationStatus === "pending"
+              ? "Awaiting admin approval"
+              : event.publicationStatus === "approved"
+                ? "Approved"
+                : "Draft"}
+          </Badge>
+          <p>
+            {event.publicationStatus === "pending"
+              ? "An organization admin will review this event before publication."
+              : event.publicationStatus === "approved"
+                ? "Your organization approved this event for publication."
+                : "Draft events appear to your organization. Submit this event when it is ready."}
+          </p>
+          {maySubmit && (
+            <Button
+              disabled={busy}
+              variant="tonal"
+              onClick={() =>
+                void run({
+                  type: "SUBMIT_EVENT_FOR_APPROVAL",
+                  eventId: event.id,
+                })
+              }
+            >
+              Submit for approval
+            </Button>
+          )}
+          {organizationAdmin && event.publicationStatus === "pending" && (
+            <>
+              <Button
+                disabled={busy}
+                variant="outlined"
+                onClick={() =>
+                  void run({
+                    type: "REVIEW_EVENT_PUBLICATION",
+                    eventId: event.id,
+                    decision: "reject",
+                  })
+                }
+              >
+                Return to draft
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void run({
+                    type: "REVIEW_EVENT_PUBLICATION",
+                    eventId: event.id,
+                    decision: "approve",
+                  })
+                }
+              >
+                Approve and publish
+              </Button>
+            </>
+          )}
+        </div>
+      )}
       <div className="organizer-summary">
         <Metric
           icon={<UsersThree size={23} />}
@@ -165,7 +270,13 @@ export default function Organizer() {
           </button>
         ))}
       </div>
-      {tab === "Applications" && (
+      {tab === "Applications" && !organizationAdmin && (
+        <Empty
+          title="Application review is managed by admins"
+          description="You can draft events and submit them for your organization’s approval."
+        />
+      )}
+      {tab === "Applications" && organizationAdmin && (
         <section className="panel applications-panel">
           <SectionTitle
             title="Every good team starts with people"
@@ -327,6 +438,7 @@ export default function Organizer() {
             </dl>
             <Button
               variant="tonal"
+              disabled={!mayEdit}
               onClick={() => setEdit(event)}
               icon={<PencilSimple size={17} />}
             >
@@ -484,7 +596,17 @@ function EventEditor({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const { run } = useDemo();
+  const { run, organizations, memberships, me } = useDemo();
+  const [organizationId, setOrganizationId] = useState(
+    event ? (event.organizationId ?? "") : (organizations[0]?.id ?? ""),
+  );
+  const organization = organizations.find((o) => o.id === organizationId);
+  const organizationAdmin = memberships.some(
+    (m) =>
+      m.organizationId === organizationId &&
+      m.personId === me.id &&
+      m.role === "admin",
+  );
   const [kind, setKind] = useState<EventKind>(event?.kind ?? "hackathon");
   return (
     <Modal
@@ -494,7 +616,11 @@ function EventEditor({
           ? "Make a few thoughtful changes"
           : "Create a reason to come together"
       }
-      description="Set the essentials. Participants can discover your event as soon as you open applications."
+      description={
+        organizationId
+          ? "Set the essentials, then submit your draft for an organization admin to approve."
+          : "Set the essentials. Participants can discover your event as soon as you open applications."
+      }
       onClose={onClose}
       footer={
         <>
@@ -527,7 +653,7 @@ function EventEditor({
               levels: data.getAll("audienceLevels") as Level[],
             },
             title: String(data.get("title")),
-            organizer: String(data.get("organizer")),
+            organizer: organization?.name ?? String(data.get("organizer")),
             description: String(data.get("description")),
             theme: String(data.get("theme")),
             date: String(data.get("date")),
@@ -536,7 +662,13 @@ function EventEditor({
             location: String(data.get("location")),
             venue: String(data.get("venue")),
             format: data.get("format") as Hackathon["format"],
-            status: data.get("status") as Hackathon["status"],
+            status:
+              organizationId &&
+              (!event ||
+                !organizationAdmin ||
+                event.publicationStatus !== "approved")
+                ? "draft"
+                : (data.get("status") as Hackathon["status"]),
             capacity: Number(data.get("capacity")),
             minTeamSize: kind === "hackathon" ? Number(data.get("min")) : 1,
             maxTeamSize: kind === "hackathon" ? Number(data.get("max")) : 1,
@@ -584,7 +716,13 @@ function EventEditor({
           const result = await run(
             event
               ? { type: "UPDATE_EVENT", eventId: event.id, changes: details }
-              : { type: "CREATE_EVENT", event: details },
+              : {
+                  type: "CREATE_EVENT",
+                  event: {
+                    ...details,
+                    ...(organizationId ? { organizationId } : {}),
+                  },
+                },
           );
           if (!result.error) {
             if (result.createdId) onCreated(result.createdId);
@@ -592,6 +730,25 @@ function EventEditor({
           }
         })}
       >
+        {!!organizations.length && (
+          <Field label="Hosting organization">
+            <select
+              aria-label="Hosting organization"
+              value={organizationId}
+              disabled={!!event}
+              onChange={(e) => setOrganizationId(e.target.value)}
+            >
+              {event && !event.organizationId && (
+                <option value="">Existing organizer</option>
+              )}
+              {organizations.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Event type">
           <select
             value={kind}
@@ -631,7 +788,11 @@ function EventEditor({
             <input
               name="organizer"
               required
-              defaultValue={event?.organizer ?? "GDG Belgrade"}
+              readOnly={!!organizationId}
+              key={organizationId}
+              defaultValue={
+                organization?.name ?? event?.organizer ?? "GDG Belgrade"
+              }
             />
           </Field>
           <Field label="Theme">
@@ -739,7 +900,18 @@ function EventEditor({
             </select>
           </Field>
           <Field label="Applications">
-            <select name="status" defaultValue={event?.status ?? "open"}>
+            <select
+              name="status"
+              disabled={
+                !!organizationId &&
+                (!event ||
+                  !organizationAdmin ||
+                  event.publicationStatus !== "approved")
+              }
+              defaultValue={
+                event?.status ?? (organizationId ? "draft" : "open")
+              }
+            >
               <option value="open">Open</option>
               <option value="draft">Save as draft</option>
               <option value="past">Past event</option>

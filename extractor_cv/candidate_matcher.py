@@ -9,27 +9,19 @@ An event is turned into a narrative the same way; Chroma filters on the metadata
 first and ranks only the remaining candidates by cosine similarity.
 """
 
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
-from urllib.parse import urlsplit
 
-import requests
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
-from langchain_openai import OpenAIEmbeddings
+from langchain_core.embeddings import Embeddings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from extractor import API_URL as GEMMA_GENERATE_URL, HEADERS  # noqa: E402
+from embeddings import GemmaServerEmbeddings, build_embeddings  # noqa: E402,F401
 
-_gemma_base = urlsplit(GEMMA_GENERATE_URL)
-GEMMA_EMBED_URL = os.environ.get("GEMMA_EMBED_URL") or f"{_gemma_base.scheme}://{_gemma_base.netloc}/embed"
-
-OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_COLLECTION = "candidates"
 MISSING = "nije navedeno"
 
@@ -270,70 +262,6 @@ class CandidateMatcher:
         metadata_filter = HardConstraintFilter.build(event)
         query_vector = self.vector_store.embeddings.embed_query(NarrativeBuilder.event_narrative(event))
         return self.vector_store.search_by_vector(query_vector, k=top_k, metadata_filter=metadata_filter)
-
-
-class GemmaServerEmbeddings(Embeddings):
-    """Embeddings from the /embed route on the Gemma server (see gemma_embed_route.py)."""
-
-    def __init__(self, embed_url: str = GEMMA_EMBED_URL, batch_size: int = 32, timeout: int = 120) -> None:
-        # batch_size must stay at or below MAX_TEXTS_PER_REQUEST on the server.
-        self.embed_url = embed_url
-        self.batch_size = batch_size
-        self.timeout = timeout
-
-    def _embed(self, texts: Sequence[str], task: str, timeout: Optional[int] = None) -> List[List[float]]:
-        vectors: List[List[float]] = []
-        for start in range(0, len(texts), self.batch_size):
-            batch = list(texts[start:start + self.batch_size])
-            response = requests.post(
-                self.embed_url,
-                json={"texts": batch, "task": task},
-                headers=HEADERS,
-                timeout=timeout or self.timeout,
-            )
-            if response.status_code != 200:
-                raise RuntimeError(f"Embedding server error: {response.status_code} {response.text[:300]}")
-            batch_vectors = response.json()["embeddings"]
-            if len(batch_vectors) != len(batch):
-                raise RuntimeError(f"Embedding server returned {len(batch_vectors)} vectors for {len(batch)} texts.")
-            vectors.extend(batch_vectors)
-        return vectors
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        if not texts:
-            return []
-        return self._embed(texts, task="document")
-
-    def embed_query(self, text: str) -> List[float]:
-        return self._embed([text], task="query")[0]
-
-    def is_available(self) -> bool:
-        try:
-            self._embed(["ping"], task="query", timeout=15)
-            return True
-        except Exception:
-            return False
-
-
-def build_embeddings() -> Embeddings:
-    """
-    Gemma server embeddings when /embed responds, then OpenAI if OPENAI_API_KEY is set,
-    otherwise an offline fake for smoke tests.
-
-    Each option has a different vector size, so a persisted Chroma collection must
-    always be built and queried with the same one.
-    """
-    gemma = GemmaServerEmbeddings()
-    if gemma.is_available():
-        return gemma
-    if os.environ.get("OPENAI_API_KEY"):
-        print(f"Warning: Gemma /embed at {GEMMA_EMBED_URL} is unavailable. Using OpenAI embeddings.\n")
-        return OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
-    print(
-        f"Warning: Gemma /embed at {GEMMA_EMBED_URL} is unavailable and OPENAI_API_KEY is not set. "
-        "Using deterministic fake embeddings, so filtering is real but similarity scores are meaningless.\n"
-    )
-    return DeterministicFakeEmbedding(size=768)
 
 
 # ============================================================================

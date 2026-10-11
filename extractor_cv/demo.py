@@ -52,25 +52,21 @@ def _row(rank: int, similarity: float, candidate_id: str, source: str, store) ->
 
 
 def ingest_sources(sources: List[str], max_pdfs: Optional[int], sync_firebase: bool = False) -> Dict[str, str]:
-    """Run every CV in the sources through extract -> HITL -> DB. Returns candidate_id -> source label."""
+    """Index dataset proposals with isolated, sanitized record failures."""
+    if sync_firebase:
+        raise ValueError("Dataset imports require explicit account and attachment bindings for Firebase.")
     origin: Dict[str, str] = {}
     for source in sources:
         label = Path(source).name
         print(f"\n[{label}]")
-        for candidate_id, cv, error in iter_cv_records(str(HERE / source), max_raw_files=max_pdfs):
-            if cv is None:
-                print(f"  skip {candidate_id}: {error}")
+        records = iter_cv_records(str(HERE / source), max_raw_files=max_pdfs)
+        for result in pipeline.ingest_records(records):
+            candidate_id = result.candidate_id
+            if result.status != "indexed":
+                print(f"  skip {candidate_id}: {result.error}")
                 continue
-            enriched = pipeline.human_in_the_loop_enrichment(cv)
-            pipeline.add_user_to_db(enriched)
-            if sync_firebase:
-                pipeline.add_user_to_firebase(enriched)
             origin[candidate_id] = label
-            print(
-                f"  added {candidate_id}  level={cv['experience_level'] or '-'}"
-                f"  city={city_key(cv['location'])}  birth_year={cv['birth_year'] or '-'}"
-                f"  skills={len(cv['skills'])}"
-            )
+            print(f"  indexed {candidate_id}")
     return origin
 
 
@@ -81,16 +77,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--all-pdfs", action="store_true", help="Extract every PDF/image CV.")
     parser.add_argument("--top-n", type=int, default=5)
     parser.add_argument("--in-memory", action="store_true", help="Do not persist the vector DB.")
-    parser.add_argument("--firebase", action="store_true", help="Also write users and the event to Firestore.")
+    parser.add_argument("--firebase", action="store_true", help="Deprecated; dataset imports cannot address authenticated accounts.")
+    parser.add_argument("--backend", choices=["gemma", "openai", "local"], help="Explicit embedding backend; defaults to configured Gemma.")
     parser.add_argument("--event-file", help="Text file with the event description instead of the mock text.")
     args = parser.parse_args(argv)
+    if args.firebase:
+        parser.error("Dataset demo cannot write authenticated accounts. Use add_user_to_firebase with an explicit UID and attachment revision.")
+    if not 0 <= args.top_n <= 1000 or args.max_pdfs_per_source < 0:
+        parser.error("top-n must be 0-1000 and max-pdfs-per-source must be nonnegative.")
 
-    store = pipeline.configure_store(None if args.in_memory else str(pipeline.DEFAULT_PERSIST_DIR))
+    store = pipeline.configure_store(None if args.in_memory else str(pipeline.DEFAULT_PERSIST_DIR), backend=args.backend)
     print(f"Embeddings: {embedding_model_id(store.embeddings)}")
     print(f"Vector DB:  {'in memory' if args.in_memory else pipeline.DEFAULT_PERSIST_DIR}")
 
     # ---- Step 1: CVs -------------------------------------------------------
-    print("\n=== Step 1: CV extraction -> human in the loop -> DB ===")
+    print("\n=== Step 1: CV extraction proposals -> private index ===")
     started = time.time()
     origin = ingest_sources(args.sources, None if args.all_pdfs else args.max_pdfs_per_source, args.firebase)
     print(f"\n{len(origin)} candidates added in {time.time() - started:.0f}s.")
@@ -103,9 +104,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     event_text = Path(args.event_file).read_text(encoding="utf-8") if args.event_file else MOCK_EVENT_TEXT
     event = pipeline.extract_event_info(event_text)
     event_id = pipeline.add_event_to_db(event)
-    if args.firebase:
-        event["event_id"] = event_id
-        pipeline.add_event_to_firebase(event)
     print(json.dumps(event, indent=2, ensure_ascii=False))
     print(f"\nevent_id: {event_id}")
     print(f"Ideal-candidate narrative: {event_narrative(event)}")
@@ -113,23 +111,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ---- Step 3: matching --------------------------------------------------
     print("\n=== Step 3: hybrid matching ===")
     where = pipeline.build_hard_filter(event)
-    passed = store.count_candidates(where)
     print("Hard filter:", json.dumps(where, ensure_ascii=False))
-    print(f"Candidates passing the hard filter: {passed} of {store.count_candidates()}")
+    print(f"Candidates indexed in this run: {len(origin)}")
 
-    in_run = set(origin)
-    # Ask for every passing candidate, then keep the ones from this run (the DB may hold older runs).
-    hybrid = [m for m in pipeline.find_best_matches(event_id, top_n=max(passed, 1)) if m.candidate_id in in_run]
+    run_filter = {"candidate_id": {"$in": list(origin)}}
+    where = {"$and": [where, run_filter]} if where else run_filter
+    vector = store.get_event(event_id)[1]
+    hybrid = [pipeline.MatchResult(identity, score) for identity, score in store.query_candidates(vector, args.top_n, where)]
     print(f"\nTop {args.top_n} after filter + cosine similarity:")
     for rank, match in enumerate(hybrid[: args.top_n], start=1):
         print(_row(rank, match.similarity, match.candidate_id, origin[match.candidate_id], store))
     if not hybrid:
         print("  (no candidate passed the hard filter)")
 
-    unfiltered = [
-        m for m in pipeline.find_best_matches(event_id, top_n=store.count_candidates(), apply_hard_filters=False)
-        if m.candidate_id in in_run
-    ]
+    unfiltered = [pipeline.MatchResult(identity, score)
+                  for identity, score in store.query_candidates(vector, args.top_n, run_filter)]
     print(f"\nFor comparison, top {args.top_n} by cosine similarity only (no hard filter):")
     for rank, match in enumerate(unfiltered[: args.top_n], start=1):
         print(_row(rank, match.similarity, match.candidate_id, origin[match.candidate_id], store))
@@ -142,7 +138,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             nearest = next((m for m in unfiltered if origin[m.candidate_id] == label), None)
             extra = f"; nearest by similarity alone: {nearest.candidate_id} ({nearest.similarity:.3f})" if nearest else ""
-            print(f"  {label}: no candidate passed the hard filter{extra}")
+            print(f"  {label}: no candidate in the top {args.top_n} filtered matches{extra}")
     if hybrid:
         winner = hybrid[0]
         print(f"\nBest match overall: {winner.candidate_id} from {origin[winner.candidate_id]}.")

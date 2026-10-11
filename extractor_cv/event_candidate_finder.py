@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Optional
+from datetime import date
 
 import requests
 from jsonschema import Draft202012Validator
@@ -16,14 +17,11 @@ from extractor import (  # noqa: E402
     HEADERS,
     extract_text_from_file,
     parse_cv_with_gemma,
+    _call_json_generate,
+    MAX_CV_CHARACTERS,
+    MAX_HTTP_RETRIES,
 )
-
-# Year used to turn an age mentioned in the event description into a birth year.
-CURRENT_YEAR = 2026
-
-# A hackathon always has a birth-year range. These ages are used when the text gives none.
-HACKATHON_MIN_AGE = 18
-HACKATHON_MAX_AGE = 25
+from contracts import canonical_city  # noqa: E402
 
 RAW_CV_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 SKIP_DIRS = {"venv", "__pycache__", ".git"}
@@ -87,10 +85,7 @@ def _extract_json_object(text: str) -> dict:
 
 
 def _schema_errors(data: dict) -> list:
-    return [
-        f"{'/'.join(str(p) for p in err.path) or '<root>'}: {err.message}"
-        for err in _VALIDATOR.iter_errors(data)
-    ]
+    return ["Event response does not match the schema." for _ in _VALIDATOR.iter_errors(data)]
 
 
 def _field(raw: dict, *keys):
@@ -209,6 +204,11 @@ def _unique(values: list) -> list:
 
 
 def build_event_prompt(event_text: str, cvs: list) -> str:
+    if not isinstance(event_text, str) or not event_text.strip():
+        raise ValueError("Event description is empty.")
+    if len(event_text) > MAX_CV_CHARACTERS:
+        raise ValueError("Event description exceeds the 20000 character limit.")
+    current_year = date.today().year
     vocabulary = list(skill_vocabulary(cvs).values())
     locations = _unique([cv["location"] for cv in cvs])
     levels = _unique([cv["seniority"] for cv in cvs])
@@ -263,19 +263,17 @@ Short description:
 
 Birth years:
 - "min_birth_year" and "max_birth_year" are top-level fields, not nested in another object.
-- The current year is {CURRENT_YEAR}.
-- For a conference, meetup, or workshop, return null for both years unless the text contains a number that is an age, an age range, or a birth year.
-- A hackathon always has both years. Never return null for a hackathon.
-- If a hackathon description gives no age, use {HACKATHON_MIN_AGE} to {HACKATHON_MAX_AGE}: max_birth_year = {CURRENT_YEAR - HACKATHON_MAX_AGE}, min_birth_year = {CURRENT_YEAR - HACKATHON_MIN_AGE}.
-- Do not invent ages from words like junior, senior, student, beginner, or experienced, except for that hackathon default.
-- Event dates, conference years, and deadlines are not birth years. "14 to 16 November {CURRENT_YEAR}" does not produce a birth year.
+- The current year is {current_year}.
+- For every event type, including a hackathon, return null for both years unless the organizer explicitly requests an age or birth-year constraint.
+- Do not invent ages from words like junior, senior, student, beginner, or experienced.
+- Preserve one-sided bounds: "at least 18 years old" sets min_birth_year to {current_year - 18} and leaves max_birth_year null; "at most 25 years old" sets max_birth_year to {current_year - 25} and leaves min_birth_year null.
+- Event dates, conference years, and deadlines are not birth years. "14 to 16 November {current_year}" does not produce a birth year.
 - max_birth_year is the smaller number. It is the birth year of the oldest acceptable person.
 - min_birth_year is the larger number. It is the birth year of the youngest acceptable person.
 - max_birth_year must be less than or equal to min_birth_year.
-- Age range "20 to 25": the oldest is 25, so max_birth_year = {CURRENT_YEAR} - 25. The youngest is 20, so min_birth_year = {CURRENT_YEAR} - 20.
-  Worked example in {CURRENT_YEAR}: max_birth_year = {CURRENT_YEAR - 25}, min_birth_year = {CURRENT_YEAR - 20}.
-- A single age N, or "around N": oldest is N + 2, youngest is N - 2.
-  max_birth_year = {CURRENT_YEAR} - (N + 2). min_birth_year = {CURRENT_YEAR} - (N - 2).
+- Age range "20 to 25": the oldest is 25, so max_birth_year = {current_year} - 25. The youngest is 20, so min_birth_year = {current_year} - 20.
+  Worked example in {current_year}: max_birth_year = {current_year - 25}, min_birth_year = {current_year - 20}.
+- A single exact age N has both bounds equal to {current_year} - N. Do not invent a tolerance for an approximate age.
 - An exact birth year Y: min_birth_year and max_birth_year are both Y.
 
 Remote:
@@ -284,6 +282,8 @@ Remote:
 - A city by itself does not make the event remote. "AI hackathon in Belgrade" is remote false.
 - "Online AI hackathon" is remote true. If no city is named, location is null.
 - Hybrid is remote true, because people can join without traveling.
+- Online registration, tickets, applications, advertising or streaming recordings do not mean online attendance.
+- Explicit negation such as "remote participation is not available" means remote false.
 
 Event type:
 - "event_type" is the kind of event named in the text, as a short lowercase word.
@@ -295,7 +295,7 @@ Event type:
 Wrong answer to refuse:
 Input: "AI hackathon in Belgrade, I need juniors who know Python"
 Wrong: skills only ["Python"], a guessed birth-year range, remote true, or event_type null.
-Right: name null, short_description "AI hackathon in Belgrade for junior Python developers.", skills include "AI" and "Python", location "Belgrade", seniority "Junior" or "Student / Junior", min_birth_year {CURRENT_YEAR - HACKATHON_MIN_AGE}, max_birth_year {CURRENT_YEAR - HACKATHON_MAX_AGE}, remote false, event_type "hackathon".
+Right: name null, short_description "AI hackathon in Belgrade for junior Python developers.", skills include "AI" and "Python", location "Belgrade", seniority "Junior" or "Student / Junior", min_birth_year null, max_birth_year null, remote false, event_type "hackathon".
 
 Skills present in the CVs:
 {json.dumps(vocabulary, ensure_ascii=False)}
@@ -317,60 +317,21 @@ def extract_event_criteria(event_text: str, cvs: list, api_url: str, max_retries
     """Send the event description to Gemma and return criteria aligned with CV skills."""
     vocabulary = skill_vocabulary(cvs)
     prompt = build_event_prompt(event_text, cvs)
-    strict_prompt = prompt + (
-        "\nReturn ONLY a JSON object, with no markdown fences and no extra text. "
-        f"The object must match this schema:\n{json.dumps(EVENT_SCHEMA, ensure_ascii=False)}\n"
-    )
-    current_prompt = strict_prompt
-    last_error = None
-    raw = ""
-
-    for _ in range(max_retries + 1):
-        response = requests.post(
-            api_url,
-            json={"prompt": current_prompt},
-            headers=HEADERS,
-            timeout=120,
-        )
-        if response.status_code != 200:
-            raise RuntimeError(f"Server error: {response.status_code} {response.text[:300]}")
-
-        raw = response.json().get("response", "")
-        try:
-            data = _extract_json_object(raw)
-            problems = _schema_errors(data)
-            if problems:
-                last_error = "Response does not match the schema: " + "; ".join(problems)
-            else:
-                unknown = [skill for skill in data["skills"] if norm(skill) not in vocabulary]
-                if vocabulary and unknown:
-                    last_error = "Skills were not found in any CV: " + ", ".join(unknown)
-                else:
-                    if vocabulary:
-                        data["skills"] = _dedupe_known_skills(data["skills"], vocabulary)
-                    else:
-                        data["skills"] = _dedupe_skills(data["skills"])
-                    _merge_scraped_skills(event_text, data, vocabulary)
-                    _normalize_event_type(event_text, data)
-                    _normalize_birth_years(event_text, data)
-                    _normalize_name(data)
-                    _normalize_short_description(data)
-                    _normalize_remote(event_text, data)
-                    if isinstance(data.get("location"), str):
-                        data["location"] = data["location"].strip() or None
-                    if isinstance(data.get("seniority"), str):
-                        data["seniority"] = data["seniority"].strip() or None
-                    return data
-        except json.JSONDecodeError as exc:
-            last_error = f"Response is not valid JSON: {exc.msg}"
-
-        current_prompt = (
-            strict_prompt
-            + f"\nYour previous answer was rejected. Reason: {last_error}\n"
-            + f"Previous answer:\n{raw}\n\nFix it and return only the JSON object."
-        )
-
-    raise ValueError(f"{last_error} | raw_response: {raw[:500]}")
+    data = _call_json_generate(api_url, prompt, EVENT_SCHEMA, min(MAX_HTTP_RETRIES, max_retries))
+    if vocabulary and any(norm(skill) not in vocabulary for skill in data["skills"]):
+        raise ValueError("Event response contains skills outside the candidate vocabulary.")
+    data["skills"] = (_dedupe_known_skills(data["skills"], vocabulary)
+                      if vocabulary else _dedupe_skills(data["skills"]))
+    _merge_scraped_skills(event_text, data, vocabulary)
+    _normalize_event_type(event_text, data)
+    _normalize_birth_years(event_text, data)
+    _normalize_name(data)
+    _normalize_short_description(data)
+    _normalize_remote(event_text, data)
+    for field in ("location", "seniority"):
+        if isinstance(data.get(field), str):
+            data[field] = data[field].strip()[:200] or None
+    return data
 
 
 def _dedupe_skills(skills: list) -> list:
@@ -383,7 +344,9 @@ def _dedupe_skills(skills: list) -> list:
         if key in seen:
             continue
         seen.add(key)
-        chosen.append(skill.strip())
+        chosen.append(skill.strip()[:200])
+        if len(chosen) == 50:
+            break
     return chosen
 
 
@@ -395,7 +358,9 @@ def _dedupe_known_skills(skills: list, vocabulary: dict) -> list:
         if key in seen or key not in vocabulary:
             continue
         seen.add(key)
-        chosen.append(vocabulary[key])
+        chosen.append(vocabulary[key][:200])
+        if len(chosen) == 50:
+            break
     return chosen
 
 
@@ -417,9 +382,7 @@ def _location_matches(cv_location: Optional[str], wanted: Optional[str]) -> bool
         return True
     if not cv_location:
         return False
-    left = norm(cv_location)
-    right = norm(wanted)
-    return left == right or right in left or left in right
+    return canonical_city(cv_location) == canonical_city(wanted)
 
 
 def _seniority_matches(cv_level: Optional[str], wanted: Optional[str]) -> bool:
@@ -436,7 +399,7 @@ def _seniority_matches(cv_level: Optional[str], wanted: Optional[str]) -> bool:
 
 def _mentions_age_or_birth_year(text: str) -> bool:
     """True only when the description states an age or a birth year, not a seniority word."""
-    if re.search(r"\b(19|20)\d{2}\b", text) and re.search(
+    if re.search(r"\b\d{4}\b", text) and re.search(
         r"\b(born|birth|year of birth|birth year|godiste|godište)\b", text, flags=re.IGNORECASE
     ):
         return True
@@ -448,6 +411,10 @@ def _mentions_age_or_birth_year(text: str) -> bool:
         return True
     if re.search(r"\baround\s+\d{1,2}\b", text, flags=re.IGNORECASE):
         return True
+    if re.search(r"\b(?:participants?|people|attendees?|developers?)\s+(?:(?:aged|who are)\s+)?(?:over|under|older than|younger than|at least|at most)\s+\d{1,3}\b", text, re.I):
+        return True
+    if re.search(r"\b\d{1,3}\s*\+", text) or re.search(r"\b\d{1,3}\s*godin[aeu]\b", text, re.I):
+        return True
     return False
 
 
@@ -456,34 +423,19 @@ def _set_birth_years(data: dict, min_birth_year: Optional[int], max_birth_year: 
     data["max_birth_year"] = max_birth_year
 
 
-def _hackathon_default_years(data: dict) -> None:
-    """Oldest person has the smaller birth year, so that value is max_birth_year."""
-    _set_birth_years(
-        data,
-        CURRENT_YEAR - HACKATHON_MIN_AGE,
-        CURRENT_YEAR - HACKATHON_MAX_AGE,
-    )
-
-
 def _normalize_birth_years(event_text: str, data: dict) -> None:
-    """Keep max_birth_year as the smaller year. A hackathon always has both bounds."""
+    """Validate explicit bounds, preserving missing endpoints as open bounds."""
     data.pop("birth_years", None)
-    hackathon = data.get("event_type") == "hackathon"
+    for field in ("min_birth_year", "max_birth_year"):
+        value = data.get(field)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= date.today().year):
+            raise ValueError("Event birth year must be between 1900 and the current year.")
     if not _mentions_age_or_birth_year(event_text):
-        if hackathon:
-            _hackathon_default_years(data)
-        else:
-            _set_birth_years(data, None, None)
+        _set_birth_years(data, None, None)
         return
     younger_year = _as_int(data.get("min_birth_year"))
     older_year = _as_int(data.get("max_birth_year"))
-    if younger_year is None or older_year is None:
-        if hackathon:
-            _hackathon_default_years(data)
-        else:
-            _set_birth_years(data, None, None)
-        return
-    if older_year > younger_year:
+    if younger_year is not None and older_year is not None and older_year > younger_year:
         _set_birth_years(data, older_year, younger_year)
 
 
@@ -492,7 +444,7 @@ def _normalize_name(data: dict) -> None:
     if not isinstance(name, str) or not name.strip():
         data["name"] = None
         return
-    data["name"] = name.strip()
+    data["name"] = name.strip()[:200]
 
 
 def _normalize_short_description(data: dict) -> None:
@@ -500,7 +452,7 @@ def _normalize_short_description(data: dict) -> None:
     if not isinstance(description, str) or not description.strip():
         data["short_description"] = None
         return
-    data["short_description"] = " ".join(description.split())
+    data["short_description"] = " ".join(description.split())[:200]
 
 
 _SCRAPE_SKILLS = (
@@ -540,7 +492,11 @@ _EVENT_TYPES = (
 
 
 def _normalize_event_type(event_text: str, data: dict) -> None:
-    """Keep the event type only when the description actually names one."""
+    """Prefer the selected structured type when several event kinds are mentioned."""
+    selected = data.get("event_type")
+    if isinstance(selected, str) and selected.strip().casefold() in {name for name, _ in _EVENT_TYPES}:
+        data["event_type"] = selected.strip().casefold()
+        return
     found = []
     for name, pattern in _EVENT_TYPES:
         match = re.search(pattern, event_text, flags=re.IGNORECASE)
@@ -555,42 +511,76 @@ def _normalize_event_type(event_text: str, data: dict) -> None:
 
 def _normalize_remote(event_text: str, data: dict) -> None:
     """True only when the event lets people attend without being physically present."""
-    remote_hit = _REMOTE_WORDS.search(event_text) is not None
-    in_person_hit = _IN_PERSON_WORDS.search(event_text) is not None
-    if remote_hit:
-        data["remote"] = True
-    elif in_person_hit:
+    if re.search(r"\b(?:in[- ]person|on[- ]site|onsite|uživo|uzivo)\s+only\b", event_text, re.I):
+        data["remote"] = False
+        return
+    attendance = []
+    ignored = False
+    for clause in re.split(r"[.;!?\n]", event_text):
+        hits = list(_REMOTE_WORDS.finditer(clause))
+        if not hits:
+            continue
+        if any(_mention_negated(clause, hit.start(), hit.end()) for hit in hits):
+            data["remote"] = False
+            return
+        if re.search(r"\b(?:registration|tickets?|sign[- ]?up|applications?|recordings?|advertising)\b", clause, re.I) and not re.search(r"\b(?:attend|attendance|participation|participate|join)\b", clause, re.I):
+            ignored = True
+            continue
+        attendance.extend(hits)
+    if attendance:
+        data["remote"] = data.get("remote") is True
+    elif ignored:
         data["remote"] = False
     else:
         data["remote"] = data.get("remote") is True
 
 
+def _mention_negated(clause: str, start: int, end: int) -> bool:
+    prefix = re.split(r"\b(?:but|however|instead)\b", clause[:start], flags=re.I)[-1]
+    # A completed requirement followed by a new clause ends the negative scope.
+    # Bare commas remain inside lists such as "No Docker, Kubernetes or SQL".
+    prefix = re.split(
+        r"\b(?:required|needed|necessary|mandatory|available|allowed|supported)\b\s*(?:,\s*(?:and\s+)?|(?:and|while)\b\s*)",
+        prefix, flags=re.I,
+    )[-1]
+    suffix = clause[end:]
+    before = re.search(r"\b(?:no|not|without|never|don't|do not|doesn't|does not|nije|nisu)\b[^.;!?]*$", prefix, re.I)
+    after = re.match(r"\s*(?:(?:experience|knowledge|skills?|proficiency|participation|attendance)\s+)*(?:(?:is|are)\s+)?(?:not\b|isn't\b|aren't\b)", suffix, re.I)
+    return bool(before or after)
+
+
 def _scrape_skills(event_text: str) -> list:
     found = []
     for name, pattern in _SCRAPE_SKILLS:
-        if re.search(pattern, event_text, flags=re.IGNORECASE):
+        if any(not _mention_negated(clause, hit.start(), hit.end())
+               for clause in re.split(r"[.;!?\n]", event_text)
+               for hit in re.finditer(pattern, clause, re.I)):
             found.append(name)
     return found
 
 
 def _merge_scraped_skills(event_text: str, data: dict, vocabulary: dict) -> None:
-    scraped = _scrape_skills(event_text)
-    if vocabulary:
-        scraped = [skill for skill in scraped if norm(skill) in vocabulary]
-    data["skills"] = _dedupe_skills(list(data.get("skills") or []) + scraped)
+    # Mentioned tools may be sponsors or examples. Never augment validated extraction
+    # with unconditional keyword hits; only remove explicit negative requirements.
+    def excluded(skill):
+        pattern = next((pattern for name, pattern in _SCRAPE_SKILLS if norm(name) == norm(skill)),
+                       r"(?<!\w)" + re.escape(skill) + r"(?!\w)")
+        return any(_mention_negated(clause, hit.start(), hit.end())
+                   for clause in re.split(r"[.;!?\n]", event_text)
+                   for hit in re.finditer(pattern, clause, re.I))
+    data["skills"] = _dedupe_skills([skill for skill in data.get("skills") or [] if not excluded(skill)])
 
 
 def _years_match(birth_year: Optional[int], criteria: dict, required: bool = False) -> bool:
-    low = _as_int(criteria.get("min_birth_year"))
-    high = _as_int(criteria.get("max_birth_year"))
+    low = _as_int(criteria.get("max_birth_year"))
+    high = _as_int(criteria.get("min_birth_year"))
     # max_birth_year is the smaller number, so the two fields may be out of numeric order.
     if low is not None and high is not None and low > high:
         low, high = high, low
     if low is None and high is None:
-        return not required
-    # A hackathon range is required, so a CV with no birth year is not a match.
+        return True
     if birth_year is None:
-        return not required
+        return False
     if low is not None and birth_year < low:
         return False
     if high is not None and birth_year > high:
@@ -625,12 +615,11 @@ def match_people(cvs: list, criteria: dict) -> list:
     matched = []
 
     for cv in cvs:
-        if not _location_matches(cv["location"], criteria.get("location")):
+        if criteria.get("remote") is not True and not _location_matches(cv["location"], criteria.get("location")):
             continue
         if not _seniority_matches(cv["seniority"], criteria.get("seniority")):
             continue
-        year_required = criteria.get("event_type") == "hackathon"
-        if not _years_match(cv["birth_year"], criteria, required=year_required):
+        if not _years_match(cv["birth_year"], criteria):
             continue
 
         overlap = []

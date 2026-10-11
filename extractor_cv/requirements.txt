@@ -7,3 +7,6 @@ langchain-openai==1.7.0
 langchain-chroma==1.1.0
 chromadb==1.5.9
 firebase-admin==7.1.0
+pypdfium2==5.14.0
+filelock==4.1.0
+fastapi==0.143.0

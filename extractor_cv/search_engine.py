@@ -6,8 +6,7 @@ Search engine: hybrid matchmaking of candidates to an event.
 2. Cosine similarity between the event's "ideal candidate" embedding and the
    embeddings of the candidates that passed the filter.
 
-A hard filter excludes only candidates known to violate it. A CV with no birth year,
-seniority, or location cannot be checked, so it stays in and is ranked by similarity.
+Explicit eligibility constraints require known, matching metadata.
 """
 
 import sys
@@ -18,6 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from extractors import EventDict  # noqa: E402
+from contracts import validate_event_constraints
 from vector_store import UNKNOWN, MatchmakingStore, city_key, event_narrative, seniority_key  # noqa: E402
 
 
@@ -38,25 +38,28 @@ def _combine(conditions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def build_hard_filter(event: EventDict) -> Optional[Dict[str, Any]]:
     """Chroma `where` clause for the event's hard constraints, or None when there are none."""
+    validate_event_constraints(event)
     conditions: List[Dict[str, Any]] = []
 
-    years = [y for y in (event.get("min_birth_year"), event.get("max_birth_year")) if y is not None]
-    if years:
-        # The two fields may arrive in either numeric order, so use the real bounds.
-        oldest, youngest = min(years), max(years)
-        in_range = _combine([
-            {"birth_year": {"$gte": int(oldest)}},
-            {"birth_year": {"$lte": int(youngest)}},
-        ])
-        conditions.append({"$or": [{"has_birth_year": False}, in_range]})
+    younger = event.get("min_birth_year")  # minimum age -> latest birth year
+    older = event.get("max_birth_year")    # maximum age -> earliest birth year
+    if younger is not None and older is not None:
+        older, younger = sorted((older, younger))
+    if older is not None:
+        conditions.append({"birth_year": {"$gte": int(older)}})
+    if younger is not None:
+        conditions.append({"birth_year": {"$lte": int(younger)}})
 
     if event.get("seniority"):
-        conditions.append({"seniority_level": {"$in": [seniority_key(event["seniority"]), UNKNOWN]}})
+        level = seniority_key(event["seniority"])
+        if level == UNKNOWN:
+            raise ValueError("Unrecognized explicit seniority constraint.")
+        conditions.append({"seniority_level": level})
 
     if not event.get("remote") and event.get("location"):
         city = city_key(event["location"])
         if city != UNKNOWN:
-            conditions.append({"city": {"$in": [city, UNKNOWN]}})
+            conditions.append({"city": city})
 
     return _combine(conditions)
 
@@ -73,13 +76,21 @@ def find_best_matches(
     A string is looked up as a stored event id and reuses its stored embedding;
     a dict is embedded on the fly.
     """
+    if isinstance(top_n, bool) or not isinstance(top_n, int) or not 0 <= top_n <= 1000:
+        raise ValueError("top_n must be between 0 and 1000.")
+    if top_n == 0:
+        return []
     if isinstance(event_id_or_dict, str):
         stored = store.get_event(event_id_or_dict)
         if stored is None:
             raise KeyError(f"No event with id '{event_id_or_dict}'.")
         event, vector = stored
+        if hasattr(store, 'event_query_vector'):
+            vector = store.event_query_vector(event_id_or_dict)
     else:
         event = event_id_or_dict
+        validate_event_constraints(event)
+        where = build_hard_filter(event) if apply_hard_filters else None
         vector = store.embeddings.embed_query(event_narrative(event))
 
     where = build_hard_filter(event) if apply_hard_filters else None

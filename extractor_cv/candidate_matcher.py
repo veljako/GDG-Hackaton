@@ -1,53 +1,98 @@
-"""
-Hybrid candidate-to-event matching: metadata pre-filtering (hard constraints)
-followed by cosine similarity on text embeddings.
+"""Compatibility adapter for Serbian records and the canonical matchmaking pipeline.
 
-CVs are turned into narrative strings, embedded with EmbeddingGemma through the
-/embed route on the Gemma server (OpenAI text-embedding-3-small as a fallback),
-and stored in ChromaDB together with lokacija, senioritet, and godine as metadata.
-An event is turned into a narrative the same way; Chroma filters on the metadata
-first and ranks only the remaining candidates by cosine similarity.
+Legacy public profile/match classes remain available. Storage, narratives,
+eligibility and ranking use the same implementation as the extraction pipeline.
+Embeddings must be selected explicitly and declare stable model/dimension data.
 """
 
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from embeddings import GemmaServerEmbeddings, build_embeddings  # noqa: E402,F401
+from contracts import validate_id
+from embeddings import GemmaServerEmbeddings, build_embeddings  # compatibility exports
+from extractors import normalize_cv_dict
+from search_engine import build_hard_filter, find_best_matches
+from vector_store import UNKNOWN, MatchmakingStore, candidate_narrative, event_narrative, seniority_key
 
 DEFAULT_COLLECTION = "candidates"
 MISSING = "nije navedeno"
 
 
 def normalize_key(value: Optional[str]) -> Optional[str]:
-    """Lowercase and trim a value used for exact metadata matching. Empty becomes None."""
     if value is None:
         return None
-    text = " ".join(str(value).split()).casefold()
-    return text or None
+    return " ".join(str(value).split()).casefold() or None
 
 
-def _join(values: Sequence[str]) -> str:
-    cleaned = [v.strip() for v in values if isinstance(v, str) and v.strip()]
-    return ", ".join(cleaned) if cleaned else MISSING
+def _record(data):
+    if not isinstance(data, dict):
+        raise ValueError("Profile input must be a dictionary")
+    return data
 
 
-def _or_missing(value: Any) -> str:
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return MISSING
-    return str(value).strip()
+def _pick(data, canonical, legacy, default=None):
+    return data[canonical] if canonical in data else data.get(legacy, default)
 
 
-# ============================================================================
-# Data models
-# ============================================================================
+def _list(value):
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)) or any(not isinstance(item, str) for item in value):
+        raise ValueError("Profile list fields must contain strings")
+    return list(value)
+
+
+def _age(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= date.today().year - 1900:
+        raise ValueError("Age must be an integer within the supported birth-year range")
+    return value
+
+
+def _birth_year(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= date.today().year:
+        raise ValueError("Birth year must be between 1900 and the current year")
+    return value
+
+
+def _year_bound(data, canonical, legacy):
+    age = _age(data.get(legacy))
+    if canonical in data:
+        year = _birth_year(data[canonical])
+        if age is not None and year != date.today().year - age:
+            raise ValueError("Age and birth-year fields disagree")
+        return year
+    return date.today().year - age if age is not None else None
+
+
+def _level(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Seniority must be a string")
+    bucket = seniority_key(value)
+    # Preserve unknown explicit levels so the canonical strict filter rejects them.
+    return bucket if bucket != UNKNOWN else normalize_key(value)
+
+
+def _remote(data):
+    value = _pick(data, "remote", "is_remote", False)
+    if not isinstance(value, bool):
+        raise ValueError("remote/is_remote must be an actual boolean")
+    if "remote" in data and "is_remote" in data and data["is_remote"] is not value:
+        raise ValueError("Remote fields disagree")
+    return value
+
+
 @dataclass
 class EventProfile:
     tip_eventa: Optional[str]
@@ -58,19 +103,35 @@ class EventProfile:
     senioritet: Optional[str]
     min_godine: Optional[int]
     max_godine: Optional[int]
+    _original: Dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EventProfile":
+        _record(data)
+        younger = _year_bound(data, "min_birth_year", "min_godine")
+        older = _year_bound(data, "max_birth_year", "max_godine")
         return cls(
-            tip_eventa=data.get("tip_eventa"),
-            kratak_opis=data.get("kratak_opis"),
-            potrebni_skillovi=list(data.get("potrebni_skillovi") or []),
-            lokacija=data.get("lokacija"),
-            is_remote=bool(data.get("is_remote", False)),
-            senioritet=data.get("senioritet"),
-            min_godine=data.get("min_godine"),
-            max_godine=data.get("max_godine"),
+            tip_eventa=_pick(data, "event_type", "tip_eventa"),
+            kratak_opis=_pick(data, "short_description", "kratak_opis"),
+            potrebni_skillovi=_list(_pick(data, "skills", "potrebni_skillovi")),
+            lokacija=_pick(data, "location", "lokacija"), is_remote=_remote(data),
+            senioritet=_level(_pick(data, "seniority", "senioritet")),
+            min_godine=date.today().year - younger if younger is not None else None,
+            max_godine=date.today().year - older if older is not None else None,
+            _original=dict(data),
         )
+
+    def to_event_dict(self) -> Dict[str, Any]:
+        if not isinstance(self.is_remote, bool):
+            raise ValueError("is_remote must be an actual boolean")
+        min_age, max_age = _age(self.min_godine), _age(self.max_godine)
+        adapted = dict(self._original)
+        adapted.update(event_type=self.tip_eventa, short_description=self.kratak_opis,
+            skills=_list(self.potrebni_skillovi), location=self.lokacija,
+            remote=self.is_remote, seniority=_level(self.senioritet),
+            min_birth_year=_birth_year(self._original["min_birth_year"]) if "min_birth_year" in self._original else date.today().year - min_age if min_age is not None else None,
+            max_birth_year=_birth_year(self._original["max_birth_year"]) if "max_birth_year" in self._original else date.today().year - max_age if max_age is not None else None)
+        return adapted
 
 
 @dataclass
@@ -84,22 +145,41 @@ class CandidateProfile:
     skillovi: List[str]
     prosli_hackathoni: List[str]
     godine: Optional[int]
+    _original: Dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CandidateProfile":
-        if not data.get("id_kandidata"):
-            raise ValueError("CV JSON is missing 'id_kandidata'.")
-        return cls(
-            id_kandidata=str(data["id_kandidata"]),
-            detaljan_opis=data.get("detaljan_opis"),
-            lokacija=data.get("lokacija"),
-            jezik=list(data.get("jezik") or []),
-            senioritet=data.get("senioritet"),
-            zaposlen=data.get("zaposlen"),
-            skillovi=list(data.get("skillovi") or []),
-            prosli_hackathoni=list(data.get("prosli_hackathoni") or []),
-            godine=data.get("godine"),
-        )
+        _record(data)
+        identity = validate_id(_pick(data, "candidate_id", "id_kandidata"))
+        if "candidate_id" in data and "id_kandidata" in data and data["id_kandidata"] != identity:
+            raise ValueError("Candidate identity fields disagree")
+        year = _year_bound(data, "birth_year", "godine")
+        employed = data.get("zaposlen")
+        if employed is not None and not isinstance(employed, bool):
+            raise ValueError("zaposlen must be a boolean or null")
+        if "status" in data:
+            employed = True if normalize_key(data["status"]) == "employed" else None
+        return cls(identity, _pick(data, "general_description", "detaljan_opis"),
+            _pick(data, "location", "lokacija"), _list(_pick(data, "languages", "jezik")),
+            _level(_pick(data, "experience_level", "senioritet")), employed,
+            _list(_pick(data, "skills", "skillovi")), _list(data.get("prosli_hackathoni")),
+            date.today().year - year if year is not None else None, dict(data))
+
+    def to_cv_dict(self) -> Dict[str, Any]:
+        identity = validate_id(self.id_kandidata)
+        age = _age(self.godine)
+        adapted = dict(self._original)
+        adapted.update(candidate_id=identity, general_description=self.detaljan_opis,
+            location=self.lokacija, experience_level=_level(self.senioritet), skills=_list(self.skillovi),
+            birth_year=_birth_year(self._original["birth_year"]) if "birth_year" in self._original else date.today().year - age if age is not None else None)
+        if "status" not in adapted and self.zaposlen is True:
+            adapted["status"] = "employed"
+        normalized = normalize_cv_dict(adapted, identity, adapted.get("source") or "")
+        # These private values participate only in the canonical source revision.
+        for key in ("storage_path", "cv_document"):
+            if key in adapted:
+                normalized[key] = adapted[key]
+        return normalized
 
 
 @dataclass
@@ -110,224 +190,73 @@ class CandidateMatch:
     narrative: str = ""
 
 
-# ============================================================================
-# Step A: narrative templates
-# ============================================================================
-class NarrativeBuilder:
-    """Turns event and CV records into unified narrative strings for embedding."""
+def _candidate(cv):
+    return cv.to_cv_dict() if isinstance(cv, CandidateProfile) else CandidateProfile.from_dict(cv).to_cv_dict()
 
+
+def _event(event):
+    return event.to_event_dict() if isinstance(event, EventProfile) else EventProfile.from_dict(event).to_event_dict()
+
+
+class NarrativeBuilder:
     @staticmethod
     def event_narrative(event: EventProfile) -> str:
-        remote = "da" if event.is_remote else "ne"
-        narrative = (
-            f"Traži se {_or_missing(event.senioritet)} učesnik za {_or_missing(event.tip_eventa)}. "
-            f"Događaj se održava u {_or_missing(event.lokacija)} (Remote: {remote}). "
-            f"Od kandidata se očekuje poznavanje sledećih veština: {_join(event.potrebni_skillovi)}. "
-            f"Ciljna grupa su takmičari u rasponu od {_or_missing(event.min_godine)} "
-            f"do {_or_missing(event.max_godine)} godina."
-        )
-        # A missing description is left out rather than written as "nije navedeno",
-        # so it adds no noise to the event embedding.
-        if event.kratak_opis and event.kratak_opis.strip():
-            narrative += f" Kratak opis događaja: {' '.join(event.kratak_opis.split())}"
-        return narrative
+        return event_narrative(_event(event))
 
     @staticmethod
     def cv_narrative(cv: CandidateProfile) -> str:
-        if cv.zaposlen is None:
-            status = MISSING
-        else:
-            status = "zaposlen" if cv.zaposlen else "nije zaposlen"
-        return (
-            f"{_or_missing(cv.senioritet)} kandidat. "
-            f"Lokacija: {_or_missing(cv.lokacija)}. "
-            f"Kandidat poseduje sledeće veštine: {_join(cv.skillovi)}. "
-            f"Govori {_join(cv.jezik)} jezik. "
-            f"Trenutni status: {status}. "
-            f"Prethodno iskustvo na takmičenjima: {_join(cv.prosli_hackathoni)}. "
-            f"Detaljan opis profila: {_or_missing(cv.detaljan_opis)}. "
-            f"Godište: {_or_missing(cv.godine)}."
-        )
+        return candidate_narrative(_candidate(cv))
 
 
-# ============================================================================
-# Step B: vectorization and storage
-# ============================================================================
 class CandidateVectorStore:
-    """ChromaDB collection of CV narratives with filterable metadata, using cosine distance."""
-
-    def __init__(
-        self,
-        embeddings: Embeddings,
-        collection_name: str = DEFAULT_COLLECTION,
-        persist_directory: Optional[str] = None,
-    ) -> None:
+    def __init__(self, embeddings: Embeddings, collection_name: str = DEFAULT_COLLECTION,
+                 persist_directory: Optional[str] = None) -> None:
         self.embeddings = embeddings
-        self.store = Chroma(
-            collection_name=collection_name,
-            embedding_function=embeddings,
-            persist_directory=persist_directory,
-            collection_metadata={"hnsw:space": "cosine"},
-        )
+        self.store = MatchmakingStore(embeddings, persist_directory=persist_directory, namespace=collection_name)
 
     @staticmethod
     def _metadata(cv: CandidateProfile) -> Dict[str, Any]:
-        # Chroma rejects None values, so missing fields are left out. A CV without
-        # godine then never passes an age range filter, which is the intended hard constraint.
-        metadata: Dict[str, Any] = {"id_kandidata": cv.id_kandidata}
-        lokacija = normalize_key(cv.lokacija)
-        senioritet = normalize_key(cv.senioritet)
-        if lokacija is not None:
-            metadata["lokacija"] = lokacija
-        if senioritet is not None:
-            metadata["senioritet"] = senioritet
-        if isinstance(cv.godine, int):
-            metadata["godine"] = cv.godine
-        return metadata
+        payload, source_hash = MatchmakingStore._prepare(_candidate(cv))
+        return MatchmakingStore.candidate_metadata(payload, source_hash)
 
-    def add_candidates(self, cvs: Sequence[CandidateProfile]) -> List[str]:
-        """Embed and upsert CVs. Re-adding the same id_kandidata replaces the stored entry."""
-        documents = [
-            Document(page_content=NarrativeBuilder.cv_narrative(cv), metadata=self._metadata(cv))
-            for cv in cvs
-        ]
-        ids = [cv.id_kandidata for cv in cvs]
-        return self.store.add_documents(documents, ids=ids)
+    def add_candidates(self, cvs: Sequence[CandidateProfile], *, expected_source_hashes: Optional[Dict[str, str]] = None) -> List[str]:
+        return self.store.upsert_candidates([_candidate(cv) for cv in cvs], expected_source_hashes=expected_source_hashes)
 
-    def search_by_vector(
-        self,
-        query_vector: List[float],
-        k: int,
-        metadata_filter: Optional[Dict[str, Any]],
-    ) -> List[CandidateMatch]:
-        results = self.store.similarity_search_by_vector_with_relevance_scores(
-            embedding=query_vector,
-            k=k,
-            filter=metadata_filter,
-        )
-        # With hnsw:space=cosine Chroma returns cosine distance, so similarity is 1 - distance.
-        return [
-            CandidateMatch(
-                id_kandidata=str(doc.metadata.get("id_kandidata", "")),
-                similarity=round(1.0 - float(distance), 4),
-                metadata=dict(doc.metadata),
-                narrative=doc.page_content,
-            )
-            for doc, distance in results
-        ]
+    def _matches(self, ranked) -> List[CandidateMatch]:
+        if not ranked:
+            return []
+        if hasattr(self.store, 'get_candidate'):
+            matches = []
+            for identity, similarity in ranked:
+                payload = self.store.get_candidate(identity)
+                if payload is not None:
+                    metadata = MatchmakingStore.candidate_metadata(payload, self.store.candidate_source_hash(identity))
+                    matches.append(CandidateMatch(identity, similarity, metadata, candidate_narrative(payload)))
+            return matches
+        # Only fetch the bounded top-k results, never materialize the population.
+        saved = self.store.candidates.get(ids=[identity for identity, _ in ranked], include=["metadatas", "documents"])
+        payloads = {identity: (metadata, narrative) for identity, metadata, narrative in zip(saved["ids"], saved["metadatas"], saved["documents"])}
+        return [CandidateMatch(identity, similarity, dict(payloads[identity][0]), payloads[identity][1])
+                for identity, similarity in ranked if identity in payloads]
+
+    def search_by_vector(self, query_vector: List[float], k: int,
+                         metadata_filter: Optional[Dict[str, Any]]) -> List[CandidateMatch]:
+        return self._matches(self.store.query_candidates(query_vector, k, where=metadata_filter))
 
 
-# ============================================================================
-# Step C: hybrid matchmaking
-# ============================================================================
 class HardConstraintFilter:
-    """Builds a Chroma `where` filter from the event's hard constraints."""
-
     @staticmethod
     def build(event: EventProfile) -> Optional[Dict[str, Any]]:
-        conditions: List[Dict[str, Any]] = []
-
-        if event.min_godine is not None:
-            conditions.append({"godine": {"$gte": int(event.min_godine)}})
-        if event.max_godine is not None:
-            conditions.append({"godine": {"$lte": int(event.max_godine)}})
-
-        senioritet = normalize_key(event.senioritet)
-        if senioritet is not None:
-            conditions.append({"senioritet": {"$eq": senioritet}})
-
-        lokacija = normalize_key(event.lokacija)
-        if not event.is_remote and lokacija is not None:
-            conditions.append({"lokacija": {"$eq": lokacija}})
-
-        # Chroma requires at least two conditions inside $and.
-        if not conditions:
-            return None
-        if len(conditions) == 1:
-            return conditions[0]
-        return {"$and": conditions}
+        return build_hard_filter(_event(event))
 
 
 class CandidateMatcher:
-    """Matches candidates to an event: metadata pre-filter, then cosine similarity ranking."""
-
     def __init__(self, vector_store: CandidateVectorStore) -> None:
         self.vector_store = vector_store
 
-    def add_cvs(self, cv_jsons: Sequence[Dict[str, Any]]) -> List[str]:
-        return self.vector_store.add_candidates([CandidateProfile.from_dict(cv) for cv in cv_jsons])
+    def add_cvs(self, cv_jsons: Sequence[Dict[str, Any]], *, expected_source_hashes: Optional[Dict[str, str]] = None) -> List[str]:
+        return self.vector_store.add_candidates(cv_jsons, expected_source_hashes=expected_source_hashes)
 
     def find_best_candidates(self, event_json: Dict[str, Any], top_k: int = 5) -> List[CandidateMatch]:
-        event = EventProfile.from_dict(event_json)
-        metadata_filter = HardConstraintFilter.build(event)
-        query_vector = self.vector_store.embeddings.embed_query(NarrativeBuilder.event_narrative(event))
-        return self.vector_store.search_by_vector(query_vector, k=top_k, metadata_filter=metadata_filter)
-
-
-# ============================================================================
-# EXAMPLE USAGE
-# ============================================================================
-if __name__ == "__main__":
-    import json
-
-    mock_cvs = [
-        {
-            "id_kandidata": "123",
-            "detaljan_opis": "Strastveni inženjer podataka sa fokusom na optimizaciju modela.",
-            "lokacija": "Beograd",
-            "jezik": ["Srpski", "Engleski"],
-            "senioritet": "Medior",
-            "zaposlen": True,
-            "skillovi": ["Python", "XGBoost", "LangChain", "SQL"],
-            "prosli_hackathoni": ["OmniMo Hackathon 2026"],
-            "godine": 23,
-        },
-        {
-            "id_kandidata": "456",
-            "detaljan_opis": "ML inženjer koji gradi RAG sisteme nad internom dokumentacijom.",
-            "lokacija": "beograd",
-            "jezik": ["Srpski", "Engleski", "Nemački"],
-            "senioritet": "Medior",
-            "zaposlen": False,
-            "skillovi": ["Python", "Pandas", "RAG", "LangChain", "ChromaDB"],
-            "prosli_hackathoni": ["Data Science Hackathon Beograd 2025", "AI Bootcamp Hack"],
-            "godine": 25,
-        },
-        {
-            "id_kandidata": "789",
-            "detaljan_opis": "Senior backend developer, distribuirani sistemi i Kubernetes.",
-            "lokacija": "Novi Sad",
-            "jezik": ["Srpski"],
-            "senioritet": "Senior",
-            "zaposlen": True,
-            "skillovi": ["Go", "Kubernetes", "PostgreSQL"],
-            "prosli_hackathoni": [],
-            "godine": 31,
-        },
-    ]
-
-    mock_event = {
-        "tip_eventa": "Data Science Hackathon",
-        "kratak_opis": "Dvodnevni hakaton na kom timovi grade RAG asistenta nad dokumentacijom.",
-        "potrebni_skillovi": ["Python", "Pandas", "RAG", "LangChain"],
-        "lokacija": "Beograd",
-        "is_remote": False,
-        "senioritet": "Medior",
-        "min_godine": 20,
-        "max_godine": 26,
-    }
-
-    store = CandidateVectorStore(embeddings=build_embeddings(), collection_name="demo_candidates")
-    matcher = CandidateMatcher(store)
-    matcher.add_cvs(mock_cvs)
-
-    event = EventProfile.from_dict(mock_event)
-    print("Event narrative:")
-    print(NarrativeBuilder.event_narrative(event))
-    print("\nMetadata pre-filter:")
-    print(json.dumps(HardConstraintFilter.build(event), indent=2, ensure_ascii=False))
-
-    matches = matcher.find_best_candidates(mock_event, top_k=5)
-    print(f"\nTop {len(matches)} candidates:")
-    for rank, match in enumerate(matches, start=1):
-        print(f"{rank}. id={match.id_kandidata} similarity={match.similarity:.4f} metadata={match.metadata}")
+        ranked = find_best_matches(self.vector_store.store, _event(event_json), top_n=top_k)
+        return self.vector_store._matches([(match.candidate_id, match.similarity) for match in ranked])

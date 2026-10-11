@@ -390,7 +390,7 @@ await finalizePresentation({
   verifyArtifactToolImport: true,
   receiptPath: path.join(
     buildDir,
-    path.basename(finalPath) + ".validation.json",
+    path.basename(finalPath) + `.validation-${Date.now()}.json`,
   ),
 });
 const finalPresentation = await PresentationFile.importPptx(

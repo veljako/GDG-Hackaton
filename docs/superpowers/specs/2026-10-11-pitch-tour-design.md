@@ -21,4 +21,6 @@ The algorithm is the central story. Distinguish technical diagnostics on synthet
 
 ## Verification
 
+The user subsequently requested a more playful tour in the app's design. Reuse `BrandGeometry`, the existing blue/yellow/coral/mint tokens, bold typography and asymmetric hero corners. Keep narration panels tied to the app's light/dark surface colours. Shorten tour copy and use brief step/press feedback with reduced-motion support. Refresh the recorded tour, screenshots and embedded deck video without changing pitch timing or claims.
+
 Test viewport geometry and permission-sensitive step selection. Verify the actual running tutorial at desktop and mobile sizes, including focus, exit/restore, playback, empty states and missing targets. Run full application checks before committing. Validate PPTX integrity, render and inspect every slide, verify script word count and video duration. Push only the requested feature branch and verify the remote SHA.

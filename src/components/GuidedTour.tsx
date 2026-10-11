@@ -12,6 +12,7 @@ import {
 import { useDemo } from "../store";
 import { buildTour, captionPosition, spotlightRect } from "./tour-model";
 import type { TourRect } from "./tour-model";
+import { BrandGeometry } from "./playful";
 import "./guided-tour.css";
 
 /** A read-only walkthrough: only navigation and the session's view mode change. */
@@ -183,7 +184,10 @@ export function GuidedTour() {
           detailWasOpen = detail.open;
           detail.open = true;
         }
-        target.scrollIntoView({ block: window.innerWidth < 600 ? "start" : "center", behavior: "instant" });
+        target.scrollIntoView({
+          block: window.innerWidth < 600 ? "start" : "center",
+          behavior: "instant",
+        });
         observer.observe(target);
         update();
         // Route entrance motion can change bounds without changing element dimensions.
@@ -354,27 +358,45 @@ export function GuidedTour() {
                 }
               }}
             >
-              <div className="tour-caption-top">
-                <span>
-                  {index + 1} of {steps.length}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Close guided tour"
-                  onClick={() => void close()}
-                >
-                  <X size={20} />
-                </button>
+              <div className="tour-hero">
+                <div className="tour-caption-top">
+                  <span className="tour-step-count">
+                    {index + 1} of {steps.length}
+                  </span>
+                  <span className="tour-name">A little GEvents adventure</span>
+                  <button
+                    type="button"
+                    aria-label="Close guided tour"
+                    onClick={() => void close()}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="tour-heading" key={step.id}>
+                  <h2 id="tour-title">{step.title}</h2>
+                </div>
+                <BrandGeometry />
               </div>
               <div className="tour-progress" aria-hidden="true">
                 {steps.map((item, i) => (
-                  <span key={item.id} className={i <= index ? "passed" : ""} />
+                  <span
+                    key={item.id}
+                    className={
+                      i === index ? "current" : i < index ? "passed" : ""
+                    }
+                  />
                 ))}
               </div>
-              <div aria-live="polite" aria-atomic="true">
-                <h2 id="tour-title">{step.title}</h2>
-                <p id="tour-body">{step.body}</p>
-                {notice && <p className="tour-notice">{notice}</p>}
+              <div
+                className="tour-copy"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <div className="tour-copy-content" key={step.id}>
+                  <span className="tour-sr-only">{step.title}</span>
+                  <p id="tour-body">{step.body}</p>
+                  {notice && <p className="tour-notice">{notice}</p>}
+                </div>
               </div>
               <div className="tour-controls">
                 <button

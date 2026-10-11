@@ -55,12 +55,32 @@ export function GuidedTour() {
   const ready = active && readyId === step.id;
   const activeRef = useRef(active);
   activeRef.current = active;
+  // Capture the entry intent before the tour starts changing routes. The demo
+  // home is a presentation entry point; deep links remain available to explore.
+  const launchPending = useRef(
+    new URLSearchParams(location.search).get("tour") === "1" ||
+      new URLSearchParams(window.location.search).get("tour") === "1" ||
+      (backendMode === "demo" && location.pathname === "/"),
+  );
 
   useEffect(() => {
-    if (active || new URLSearchParams(location.search).get("tour") !== "1")
-      return;
+    const requested =
+      new URLSearchParams(location.search).get("tour") === "1" ||
+      new URLSearchParams(window.location.search).get("tour") === "1";
+    if (active || (!launchPending.current && !requested)) return;
     const timer = window.setInterval(() => {
       if (document.querySelector(".intro-app[inert]")) return;
+      launchPending.current = false;
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("tour")) {
+        url.searchParams.delete("tour");
+        url.searchParams.delete("autoplay");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          url.pathname + url.search + url.hash,
+        );
+      }
       entry.current = {
         route: location.pathname + location.search,
         mode: stateRef.current.mode,
@@ -270,6 +290,7 @@ export function GuidedTour() {
         onClick={start}
       >
         <Presentation size={21} />
+        <span className="tour-trigger-label">Take a tour</span>
       </button>
       {active &&
         createPortal(
@@ -387,11 +408,7 @@ export function GuidedTour() {
                   />
                 ))}
               </div>
-              <div
-                className="tour-copy"
-                aria-live="polite"
-                aria-atomic="true"
-              >
+              <div className="tour-copy" aria-live="polite" aria-atomic="true">
                 <div className="tour-copy-content" key={step.id}>
                   <span className="tour-sr-only">{step.title}</span>
                   <p id="tour-body">{step.body}</p>

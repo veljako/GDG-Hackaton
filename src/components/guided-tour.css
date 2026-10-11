@@ -1,3 +1,17 @@
+.icon-button.tour-trigger {
+  width: auto;
+  flex-shrink: 0;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 10px 20px 10px 10px;
+  background: var(--yellow);
+  color: #302600;
+}
+.tour-trigger-label {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .guided-tour {
   --tour-accent: var(--yellow);
   position: fixed;
@@ -207,6 +221,14 @@
   color: var(--yellow-ink);
 }
 @media (max-width: 600px) {
+  .icon-button.tour-trigger {
+    width: 40px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .tour-trigger-label {
+    display: none;
+  }
   .app-shell[data-guided-tour] .main-content {
     padding-bottom: 55dvh;
   }

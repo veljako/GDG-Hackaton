@@ -42,7 +42,7 @@ The tour changes navigation and current-session view mode only. It restores the 
 
 ## Running and rebuilding
 
-Run the app normally and use the presentation icon in the header to start the tour. For an isolated demo:
+The fictional demo's home page opens the tutorial after the launch animation. Desktop also has a labelled **Take a tour** button in the header; mobile uses its presentation icon. Deep links stay available for direct exploration, and closing the tutorial does not reopen it during the same visit. Real accounts use the button or the explicit `/#/?tour=1` launch link. For an isolated demo:
 
 ```powershell
 $env:GEVENTS_API_PORT='5201'
@@ -61,5 +61,7 @@ npx.cmd playwright install ffmpeg
 ```
 
 Set `GEVENTS_CHROMIUM` to your Chromium executable if the default local path differs. The deck builder requires `RUNTIME_NODE_MODULES`, `RUNTIME_PYTHON` and, if moved, `SKILL_DIR` pointing to the bundled presentation skill. These paths are local tooling configuration, not app settings.
+
+Run `node scripts/verify-tour-entry.mjs` against the isolated local demo to check desktop/mobile home entry, tour links with the query on either side of the hash, manual reopening and deep-link restoration.
 
 Sources for competitive claims appear in relevant slide notes. Full criterion coverage and remaining evidence gaps are in the presenter script.

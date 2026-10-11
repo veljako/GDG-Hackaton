@@ -34,7 +34,6 @@
 ## Task 3: Publication
 
 - [x] Run `npm.cmd run check`, browser verification, deck validation and video metadata verification.
-- [ ] Commit only this feature and its presentation package.
-- [ ] Push `feat/gevents-pitch-tour` to origin and verify the remote commit.
-- [ ] Deliver clickable deck, script, video and branch links.
-
+- [x] Commit only this feature and its presentation package.
+- [x] Push `feat/gevents-pitch-tour` to origin and verify the remote commit.
+- [x] Deliver clickable deck, script, video and branch links.

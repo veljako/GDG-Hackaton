@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { BRAND } from "../config";
 import "./launch-intro.css";
@@ -60,9 +60,6 @@ const positions = [
   [25, -28, 26],
   [-30, 22, 28],
 ];
-const logoOutline =
-  "M14 6h36a6 6 0 0 1 0 12H22v8h22a6 6 0 0 1 0 12H22v8h28a6 6 0 0 1 0 12H14a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6Z";
-
 function Geometry({ shape }: { shape: Shape }) {
   return (
     <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -95,16 +92,15 @@ function Geometry({ shape }: { shape: Shape }) {
 }
 
 function AssemblingLogo() {
-  const clip = `intro-e-${useId().replaceAll(":", "")}`;
   const pieces = [
-    { name: "yellow", color: "#FBBC05", path: "M0 0h32v64H0Z" },
-    { name: "green", color: "#34A853", path: "M32 0h32v64H32Z" },
-    { name: "red", color: "#EA4335", path: "M8 0h24v33H20A12 12 0 0 1 8 21Z" },
     {
       name: "blue",
       color: "#4285F4",
-      path: "M32 0h24v21a12 12 0 0 1-12 12H32Z",
+      path: "M14 6h8v52h-8a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6Z",
     },
+    { name: "red", color: "#EA4335", path: "M14 6h36a6 6 0 0 1 0 12H22Z" },
+    { name: "yellow", color: "#FBBC05", path: "M16 26h28a6 6 0 0 1 0 12H22Z" },
+    { name: "green", color: "#34A853", path: "M22 46h28a6 6 0 0 1 0 12H14Z" },
   ];
   return (
     <svg
@@ -113,19 +109,12 @@ function AssemblingLogo() {
       fill="none"
       aria-hidden="true"
     >
-      <defs>
-        <clipPath id={clip}>
-          <path d={logoOutline} />
-        </clipPath>
-      </defs>
       {pieces.map((piece) => (
         <g
           key={piece.name}
           className={`intro-logo-piece intro-logo-${piece.name}`}
         >
-          <g clipPath={`url(#${clip})`}>
-            <path fill={piece.color} d={piece.path} />
-          </g>
+          <path fill={piece.color} d={piece.path} />
         </g>
       ))}
     </svg>
@@ -138,67 +127,27 @@ export function LaunchIntro({ children }: { children: ReactNode }) {
   const [reduced, setReduced] = useState(
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const screen = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const restoreFocus = useRef(false);
   const complete = useCallback(() => {
-    restoreFocus.current = !!screen.current?.contains(document.activeElement);
     setActive(false);
   }, []);
-  useEffect(() => {
-    if (active || !restoreFocus.current || !content.current) return;
-    restoreFocus.current = false;
-    const wrapper = content.current;
-    const destination = () =>
-      wrapper.querySelector<HTMLElement>("#main-content, .backend-card button");
-    const target = destination();
-    (target ?? wrapper).focus({ preventScroll: true });
-    if (target) return;
-    // Skipping can happen before the backend finishes loading. Hand focus to
-    // the page when it arrives, unless the user has already moved elsewhere.
-    const observer = new MutationObserver(() => {
-      const next = destination();
-      if (document.activeElement !== wrapper) observer.disconnect();
-      else if (next) {
-        next.focus({ preventScroll: true });
-        observer.disconnect();
-      }
-    });
-    const stopOnFocusMove = () => {
-      if (document.activeElement !== wrapper) observer.disconnect();
-    };
-    observer.observe(wrapper, { childList: true, subtree: true });
-    document.addEventListener("focusin", stopOnFocusMove);
-    return () => {
-      observer.disconnect();
-      document.removeEventListener("focusin", stopOnFocusMove);
-    };
-  }, [active]);
   useEffect(() => {
     if (!active) return;
     const before = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const timeout = window.setTimeout(complete, reduced ? 650 : 3650);
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") complete();
-    };
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const preference = () => setReduced(media.matches);
-    document.addEventListener("keydown", escape);
     media.addEventListener("change", preference);
     return () => {
       document.body.style.overflow = before;
       window.clearTimeout(timeout);
-      document.removeEventListener("keydown", escape);
       media.removeEventListener("change", preference);
     };
   }, [active, reduced, complete]);
   return (
     <>
       <div
-        ref={content}
         className="intro-app"
-        tabIndex={-1}
         inert={active}
         aria-hidden={active || undefined}
       >
@@ -206,7 +155,6 @@ export function LaunchIntro({ children }: { children: ReactNode }) {
       </div>
       {active && (
         <div
-          ref={screen}
           className={`intro-screen ${reduced ? "intro-screen--reduced" : ""}`}
           onAnimationEnd={(event) => {
             if (event.target === event.currentTarget) complete();
@@ -247,9 +195,6 @@ export function LaunchIntro({ children }: { children: ReactNode }) {
             <span className="intro-wordmark">{BRAND.name}</span>
             <span className="intro-tagline">{BRAND.tagline}</span>
           </div>
-          <button className="intro-skip" onClick={complete}>
-            Skip intro <span aria-hidden="true">↗</span>
-          </button>
         </div>
       )}
     </>

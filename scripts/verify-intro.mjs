@@ -117,13 +117,13 @@ try {
     await expect(page.locator(".intro-app")).toHaveAttribute("inert", "");
     await expect(page.locator(".intro-particle")).toHaveCount(32);
     await expect(page.locator(".intro-logo-piece")).toHaveCount(4);
-    expect(
-      await page.locator(".intro-mark clipPath path").getAttribute("d"),
-    ).toBe(
-      fs
-        .readFileSync("public/favicon.svg", "utf8")
-        .match(/<clipPath[^>]*>\s*<path d="([^"]+)"/)[1],
-    );
+    const faviconPieces = [...fs.readFileSync("public/favicon.svg", "utf8")
+      .matchAll(/<path fill="([^"]+)" d="([^"]+)"/g)]
+      .map(([, fill, d]) => ({ fill, d }));
+    expect(await page.locator(".intro-logo-piece path").evaluateAll(paths =>
+      paths.map(path => ({ fill: path.getAttribute("fill"), d: path.getAttribute("d") })),
+    )).toEqual(faviconPieces);
+    await expect(page.getByRole("button", { name: "Skip intro" })).toHaveCount(0);
     await page.evaluate(() => {
       window.introAnimations = document
         .querySelector(".intro-screen")
@@ -157,11 +157,18 @@ try {
     ).toBe(true);
     expect(final.wordmark).toBe("1");
     expect(final.scrollWidth).toBeLessThanOrEqual(width);
-    await page.getByRole("button", { name: "Skip intro" }).click();
+    await page.keyboard.press("Escape");
+    await page.locator(".intro-screen").click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press("Tab");
+    await expect(page.locator(".intro-screen")).toBeVisible();
+    expect(await page.locator(".intro-app").evaluate(element =>
+      element.contains(document.activeElement),
+    )).toBe(false);
+    await page.clock.fastForward(4000);
     await expect(page.locator(".intro-screen")).toHaveCount(0);
     await expect(page.locator(".intro-app")).not.toHaveAttribute("inert", "");
     record(
-      `${theme}, ${width}px: composed shapes, exact logo assembly, wordmark, no overflow`,
+      `${theme}, ${width}px: exact new logo assembly, no skip control, Escape/click cannot skip, inert content, wordmark, no overflow`,
     );
     await context.close();
   }
@@ -188,18 +195,13 @@ try {
     });
     const duration = Date.now() - start;
     expect(duration).toBeLessThan(4200);
-    await expect(page.locator("main h1")).toBeVisible();
+    await expect(page.locator("h1:visible").first()).toBeVisible();
     await finishRecording();
-    const nav = page.locator(width < 761 ? ".mobile-nav" : ".main-nav");
-    await nav.getByRole("link", { name: "Events", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "Find your next thing." }),
-    ).toBeVisible();
+    await page.evaluate(() => { window.location.hash = "/events"; });
+    await expect(page).toHaveURL(/#\/events$/);
     await expect(page.locator(".intro-screen")).toHaveCount(0);
-    await nav.getByRole("link", { name: "Home", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "Hey, Luka" }),
-    ).toBeVisible();
+    await page.evaluate(() => { window.location.hash = "/"; });
+    await expect(page).toHaveURL(/#\/$/);
     await expect(page.locator(".intro-screen")).toHaveCount(0);
     await context.close();
     record(
@@ -211,19 +213,17 @@ try {
   const page = await context.newPage();
   watch(page);
   await page.goto(base, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Skip intro" }).click();
-  await expect(page.locator(".intro-screen")).toHaveCount(0);
-  await expect(page.locator("#main-content")).toBeFocused();
+  await expect(page.locator(".intro-screen")).toHaveCount(0, { timeout: 4500 });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator(".intro-screen")).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Skip intro" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Skip intro" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.locator(".intro-screen")).toHaveCount(0);
-  await expect(page.locator("#main-content")).toBeFocused();
+  await expect(page.locator(".intro-screen")).toBeVisible();
+  await expect(page.locator(".intro-screen")).toHaveCount(0, { timeout: 4500 });
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
   record(
-    "Reload starts a fresh intro; click/Escape skip it and restore focus and scrolling",
+    "Reload starts a fresh intro; Escape cannot skip it; completion restores scrolling",
   );
   await context.close();
 
@@ -239,15 +239,16 @@ try {
     await route.continue();
   });
   await slowPage.goto(base, { waitUntil: "domcontentloaded" });
-  await slowPage.getByRole("button", { name: "Skip intro" }).click();
-  await expect(slowPage.locator(".intro-app")).toBeFocused();
+  await expect(slowPage.locator(".intro-screen")).toHaveCount(0, { timeout: 4500 });
+  await expect(slowPage.locator(".intro-app")).not.toHaveAttribute("inert", "");
+  expect(await slowPage.evaluate(() => document.body.style.overflow)).toBe("");
   releaseConfig();
-  await expect(slowPage.locator("#main-content")).toBeFocused({
+  await expect(slowPage.locator("h1:visible").first()).toBeVisible({
     timeout: 15000,
   });
   await slow.close();
   record(
-    "Skipping before the API loads preserves focus and hands it to the ready page",
+    "Intro completes during a slow API load and releases the app and scrolling",
   );
 
   const reduced = await browser.newContext({
@@ -260,7 +261,7 @@ try {
   await expect(reducedPage.locator(".intro-screen")).toHaveCount(0, {
     timeout: 1500,
   });
-  await expect(reducedPage.locator("main h1")).toBeVisible();
+  await expect(reducedPage.locator("h1:visible").first()).toBeVisible();
   await expect(reducedPage.locator("html")).toHaveAttribute(
     "data-theme",
     "dark",

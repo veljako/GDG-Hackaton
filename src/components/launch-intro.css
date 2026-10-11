@@ -103,24 +103,6 @@
   margin-top: 18px;
   animation: intro-wordmark 2850ms var(--ease-out) 80ms both;
 }
-.intro-skip {
-  position: absolute;
-  right: max(24px, env(safe-area-inset-right));
-  bottom: max(24px, env(safe-area-inset-bottom));
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  background: var(--surface);
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 30px;
-}
-.intro-skip:hover {
-  background: var(--surface-raised);
-  color: var(--ink);
-}
 @keyframes intro-gather {
   0% {
     opacity: 0;
@@ -238,10 +220,6 @@
   .intro-tagline {
     font-size: 12px;
     margin-top: 12px;
-  }
-  .intro-skip {
-    right: 16px;
-    bottom: max(20px, env(safe-area-inset-bottom));
   }
 }
 @keyframes intro-logo-lock-phone {

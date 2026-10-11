@@ -1,13 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>
-    <clipPath id="gevents-e">
-      <path d="M14 6h36a6 6 0 0 1 0 12H22v8h22a6 6 0 0 1 0 12H22v8h28a6 6 0 0 1 0 12H14a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6Z"/>
-    </clipPath>
-  </defs>
-  <g clip-path="url(#gevents-e)">
-    <path fill="#FBBC05" d="M0 0h32v64H0Z"/>
-    <path fill="#34A853" d="M32 0h32v64H32Z"/>
-    <path fill="#EA4335" d="M8 0h24v33H20A12 12 0 0 1 8 21Z"/>
-    <path fill="#4285F4" d="M32 0h24v21a12 12 0 0 1-12 12H32Z"/>
-  </g>
+  <path fill="#4285F4" d="M14 6h8v52h-8a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6Z"/>
+  <path fill="#EA4335" d="M14 6h36a6 6 0 0 1 0 12H22Z"/>
+  <path fill="#FBBC05" d="M16 26h28a6 6 0 0 1 0 12H22Z"/>
+  <path fill="#34A853" d="M22 46h28a6 6 0 0 1 0 12H14Z"/>
 </svg>

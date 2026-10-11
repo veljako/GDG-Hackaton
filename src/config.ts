@@ -1,6 +1,6 @@
 export const BRAND = {
   name: "GEvents",
-  icon: "/favicon.svg?v=gevents-1",
+  icon: "/favicon.svg?v=gevents-shaped-e-2",
   tagline: "Build together.",
   community: "GDG Belgrade",
 };

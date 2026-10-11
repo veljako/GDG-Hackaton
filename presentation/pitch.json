@@ -1,0 +1,196 @@
+{
+  "language": "English",
+  "coreSeconds": 405,
+  "extendedSeconds": 450,
+  "demoSeconds": 105,
+  "slides": [
+    {
+      "id": "opening",
+      "title": "GEvents",
+      "seconds": 25,
+      "headline": "The right people for events.\nThe right events for people.",
+      "script": "Imagine organizing a hackathon. You have a venue and a challenge, but you still need people who want to build, mentors who can help, and speakers who fit the topic. Meanwhile, those people are searching for the right opportunity. We are a team of four, and we built GEvents to connect both sides.",
+      "cue": "Stand facing the judges. Start the timer on the first spoken word."
+    },
+    {
+      "id": "problem",
+      "title": "Finding the right fit takes work",
+      "seconds": 40,
+      "leftLabel": "Organizations",
+      "leftText": "Suitable people\nAcross event roles\nLess recruitment effort",
+      "rightLabel": "People",
+      "rightText": "Relevant opportunities\nA role they want\nA reason to join",
+      "script": "Our problem is a mismatch between opportunities and people. An organizer needs relevant expertise and people who actually want to contribute. A person needs an event that suits their interests, availability and goals. Browsing a long list does not answer either question. Our first target is organizations running recurring professional and educational events, including communities like GDG. Participants, speakers, mentors and judges use GEvents. The organization is our proposed paying customer because it benefits from less recruitment work and more suitable participation.",
+      "cue": "Point once to each side. Keep the focus on the buyer's problem."
+    },
+    {
+      "id": "algorithm",
+      "title": "The matchmaking algorithm",
+      "seconds": 60,
+      "stages": [
+        { "title": "Eligibility", "text": "Requirements\nDates and capacity" },
+        {
+          "title": "Relevance",
+          "text": "Skills and interests\nLearning goals and roles"
+        },
+        {
+          "title": "Human choice",
+          "text": "Explain the suggestion\nLet both sides decide"
+        }
+      ],
+      "script": "The matchmaking algorithm is the core of GEvents. It connects a person's profile with an event's purpose and requirements, in both discovery and recruitment. First, we check eligibility, such as required skills and registration dates. Then we rank relevance using interests, experience, goals and roles. The semantic pipeline uses Google EmbeddingGemma to compare meaning beyond identical words. Crucially, skills someone has and skills they want to learn stay separate. A beginner can fit a learning workshop without qualifying to mentor it. We explain recommendations, and people and organizers make the final decision. If nothing is suitable, the right answer is no match. A similarity score never guarantees admission.",
+      "optionalSeconds": 15,
+      "optional": "A speaker needs relevant expertise and willingness to speak. A participant looking to learn has a different goal. We will validate both with organizers.",
+      "cue": "Slow down on eligibility versus relevance. This is the central technical explanation."
+    },
+    {
+      "id": "walkthrough",
+      "title": "GEvents in use",
+      "seconds": 105,
+      "subtitle": "A working app with fictional demo data",
+      "chapters": [
+        {
+          "time": "00:00–00:04",
+          "step": "launch",
+          "say": "Here is the working application."
+        },
+        {
+          "time": "00:04–00:12",
+          "step": "welcome",
+          "say": "The home page brings event discovery and your team into one place. The tour highlights the actual interface."
+        },
+        {
+          "time": "00:12–00:22",
+          "step": "profile",
+          "say": "Matching starts with the profile. Existing skills describe what you can contribute. Learning interests describe what you want to gain."
+        },
+        {
+          "time": "00:22–00:30",
+          "step": "roles",
+          "say": "You also choose how to join: as a participant, mentor, speaker or judge. Participation means different things to different people."
+        },
+        {
+          "time": "00:30–00:42",
+          "step": "recommendations",
+          "say": "For you narrows the list to suitable opportunities. This recording uses structured demo recommendations. We tested the Google semantic models separately, using real local inference."
+        },
+        {
+          "time": "00:42–00:52",
+          "step": "reasons",
+          "say": "Each recommendation gives concrete reasons. The person can inspect the fit, rather than trusting an unexplained number. Requirements still apply."
+        },
+        {
+          "time": "00:52–01:00",
+          "step": "search",
+          "say": "People can also browse all events and use filters. They remain free to explore outside their personal recommendations."
+        },
+        {
+          "time": "01:00–01:10",
+          "step": "team",
+          "say": "Team spaces support collaboration around an event. The semantic candidate integration can search for missing capabilities when its service is connected."
+        },
+        {
+          "time": "01:10–01:22",
+          "step": "organizer",
+          "say": "Now the organization's view. Organizers define the opportunity and manage it. Configured publication invitations reach suitable people who opted in. This tour does not send anything."
+        },
+        {
+          "time": "01:22–01:34",
+          "step": "review",
+          "say": "Applications identify the role someone wants. Organizers control admission and capacity. An invitation, an accepted invitation and event admission represent different decisions."
+        },
+        {
+          "time": "01:34–01:45",
+          "step": "activity",
+          "say": "My activity brings those decisions together. That is the complete product loop: discover a relevant opportunity, choose a role, and track the next step."
+        }
+      ],
+      "cue": "Play the embedded video once, or switch to the prepared live tour. Narrate over the silent recording. Do not play video and then repeat the live demo."
+    },
+    {
+      "id": "evidence",
+      "title": "What we tested and learned",
+      "seconds": 40,
+      "largeNumber": "50 / 50",
+      "numberLabel": "Diagnostic checks passed",
+      "body": "7 fictional profiles\n2 synthetic events\nReal local Gemma and EmbeddingGemma inference",
+      "disclosure": "Small diagnostic sample. Real user research is the next step.",
+      "script": "During implementation, we found a real problem: semantic similarity still returned weak recommendations, and extraction sometimes invented restrictions. We added source-grounded checks and a relevance gate. Our local evaluation then passed fifty diagnostic checks across seven fictional profiles and two synthetic events. That is technical evidence, not population-wide accuracy. We have not completed real-user interviews yet. Our first organizer pilot will measure useful shortlists, time saved and accepted invitations, then use that feedback to improve matching.",
+      "optionalSeconds": 10,
+      "optional": "Wanting to learn React did not satisfy an event's requirement for acquired React skills. Eligibility remained separate from relevance.",
+      "cue": "Say 'diagnostic checks', never '100 percent accurate'. Replace the research paragraph only after real evidence is supplied.",
+      "sources": [
+        "docs/local-matching-evaluation-2026-10-11.md",
+        "User confirmed interviews will be supplied later, 11 October 2026."
+      ]
+    },
+    {
+      "id": "architecture",
+      "title": "Google technology and the pilot architecture",
+      "seconds": 35,
+      "layers": [
+        { "title": "Application", "text": "React and authenticated Node API" },
+        {
+          "title": "Identity and data",
+          "text": "Firebase Authentication, Firestore and private CV storage"
+        },
+        {
+          "title": "Matching",
+          "text": "Gemma extraction and EmbeddingGemma retrieval"
+        }
+      ],
+      "body": "Eligibility and authorization remain in the API",
+      "script": "The React application uses an authenticated Node API. Firebase handles identity and canonical data, with private storage for CVs. Gemma supports reviewed extraction, and EmbeddingGemma supplies retrieval vectors. The API enforces permissions and eligibility after matching. These components exist in code, with local model evidence. Cloud deployment remains to verify. This is a bounded pilot. Cached embeddings and indexed retrieval support growth, but production latency, concurrent load and costs still need measurement.",
+      "cue": "Distinguish the architecture from deployment status. Do not claim tested scale.",
+      "sources": [
+        "docs/gemma-matching.md",
+        "README.md",
+        "docs/local-matching-evaluation-2026-10-11.md"
+      ]
+    },
+    {
+      "id": "competition",
+      "title": "Our position in an existing market",
+      "seconds": 25,
+      "body": "Brella and Swapcard already offer event matchmaking\n\nGEvents focuses on recruitment and discovery across events",
+      "disclosure": "A proposed distinction to validate with customers",
+      "script": "We researched existing products. Brella and Swapcard already offer event matchmaking, so AI alone is not our differentiation. Our proposed focus is finding people for opportunities before the event, and helping those people discover suitable events across a community. Reusable profiles can make each following event easier to organize.",
+      "cue": "Acknowledge competition directly. Present the distinction as the focus we will validate.",
+      "sources": [
+        "https://www.brella.io/event-matchmaking",
+        "https://help.swapcard.com/en/articles/11985775-how-to-set-up-a-hosted-buyer-event",
+        "https://www.swapcard.com/pricing-plans"
+      ]
+    },
+    {
+      "id": "business",
+      "title": "Organizations pay for better recruitment",
+      "seconds": 40,
+      "price": "€149",
+      "priceLabel": "Illustrative event package, up to 200 people",
+      "scenario": "20 organizations × 6 events × €149\n€17,880 annual gross revenue",
+      "costs": "Costs: inference, hosting, support, acquisition and engineering",
+      "disclosure": "Pricing and volume are hypotheses. Revenue is not profit or traction.",
+      "script": "Our proposed model keeps access free for people and charges organizations. We would start with a predictable event package, then offer subscriptions for recurring organizers. For illustration, a one-hundred-and-forty-nine-euro package for up to two hundred people would generate seventeen thousand eight hundred and eighty euros annually if twenty organizations ran six events each. These are assumptions, not customers or a forecast. Costs include model inference, hosting, support, acquisition and engineering. We will validate willingness to pay and contribution margin before fixing the price.",
+      "optionalSeconds": 20,
+      "optional": "We also considered charging per confirmed person. It aligns with an outcome, but creates questions about no-shows and people the organizer recruited independently. A capped event package is easier to budget. A success fee could later apply to clearly attributed new introductions.",
+      "cue": "Point to 'hypotheses'. Do not imply payments or subscriptions are implemented."
+    },
+    {
+      "id": "expansion",
+      "title": "A focused start, then wider communities",
+      "seconds": 20,
+      "body": "First: recurring professional and educational events\n\nNext: neighboring communities, languages and regions",
+      "script": "We start with recurring professional and educational communities, where the same organization recruits repeatedly. Beyond Belgrade, expansion means onboarding trusted organizers and relevant people in each market. Our next milestone is a real pilot that validates matching quality and organizational value.",
+      "cue": "Keep expansion concrete. Avoid unsupported market-size numbers."
+    },
+    {
+      "id": "close",
+      "title": "The right fit creates the next opportunity",
+      "seconds": 15,
+      "body": "GEvents\nMatching people and events in both directions",
+      "script": "GEvents connects what an event needs with what a person can contribute and wants to gain. Our next step is to prove that value with organizers. Thank you.",
+      "cue": "Stop at 6:45 in the core run, or about 7:30 with the optional lines. Stay on this slide for questions."
+    }
+  ]
+}
